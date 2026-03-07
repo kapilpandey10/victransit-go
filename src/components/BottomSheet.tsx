@@ -46,7 +46,6 @@ export function BottomSheet({ children, className }: BottomSheetProps) {
   return (
     <motion.div
       ref={containerRef}
-      style={{ y }}
       drag="y"
       dragConstraints={{
         top: window.innerHeight * (1 - SNAP_POINTS.expanded),
@@ -58,7 +57,7 @@ export function BottomSheet({ children, className }: BottomSheetProps) {
         'fixed inset-x-0 bottom-0 z-20 bg-background rounded-t-2xl shadow-[0_-4px_24px_rgba(0,0,0,0.12)] flex flex-col',
         className
       )}
-      style={{ y, height: `${SNAP_POINTS.expanded * 100}vh` } as any}
+      style={{ y, height: `${SNAP_POINTS.expanded * 100}vh` }}
     >
       {/* Handle */}
       <div className="flex justify-center py-3 cursor-grab active:cursor-grabbing">
