@@ -68,19 +68,31 @@ export function DepartureCard({
         </div>
       </div>
 
-      {/* Countdown */}
-      <div className="flex-shrink-0 text-right">
-        <div
-          className={cn(
-            'text-lg font-bold tabular-nums',
-            isRealtime ? 'text-realtime animate-pulse-realtime' : 'text-scheduled',
-            isNow && 'text-xl'
-          )}
-        >
-          {countdown}
-        </div>
-        <div className="text-[10px] text-muted-foreground uppercase tracking-wider">
-          {isRealtime ? 'Live' : 'Sched'}
+      {/* Countdown + track */}
+      <div className="flex-shrink-0 flex items-center gap-2">
+        {onTrackRoute && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onTrackRoute(); }}
+            className="p-1.5 rounded-full hover:bg-accent transition-colors"
+            aria-label="Track this route live"
+            title="Track route"
+          >
+            <Radio className="w-4 h-4 text-primary" />
+          </button>
+        )}
+        <div className="text-right">
+          <div
+            className={cn(
+              'text-lg font-bold tabular-nums',
+              isRealtime ? 'text-realtime animate-pulse-realtime' : 'text-scheduled',
+              isNow && 'text-xl'
+            )}
+          >
+            {countdown}
+          </div>
+          <div className="text-[10px] text-muted-foreground uppercase tracking-wider">
+            {isRealtime ? 'Live' : 'Sched'}
+          </div>
         </div>
       </div>
     </div>
