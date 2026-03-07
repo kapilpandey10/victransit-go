@@ -1,6 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { encode } from "https://deno.land/std@0.168.0/encoding/hex.ts";
-import { HmacSha1 } from "https://deno.land/std@0.168.0/hash/sha1.ts";
+import { hmac } from "https://deno.land/x/hmac@v2.0.1/mod.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -11,11 +10,7 @@ function signUrl(path: string, devId: string, apiKey: string): string {
   const separator = path.includes('?') ? '&' : '?';
   const urlWithDevId = `${path}${separator}devid=${devId}`;
   
-  const hmac = new HmacSha1(apiKey);
-  hmac.update(urlWithDevId);
-  const signature = Array.from(new Uint8Array(hmac.arrayBuffer()))
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('');
+  const signature = hmac("sha1", apiKey, urlWithDevId, "utf8", "hex");
   
   return `https://timetableapi.ptv.vic.gov.au${urlWithDevId}&signature=${signature}`;
 }
