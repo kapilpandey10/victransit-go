@@ -19,6 +19,7 @@ export function DepartureCard({
   routeName,
   routeNumber,
   directionName,
+  onTrackRoute,
 }: DepartureCardProps) {
   const isRealtime = !!departure.estimated_departure_utc;
   const departureTime = departure.estimated_departure_utc || departure.scheduled_departure_utc;
