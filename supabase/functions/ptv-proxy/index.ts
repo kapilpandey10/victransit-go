@@ -1,17 +1,27 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { hmac } from "https://deno.land/x/hmac@v2.0.1/mod.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-function signUrl(path: string, devId: string, apiKey: string): string {
+async function signUrl(path: string, devId: string, apiKey: string): Promise<string> {
   const separator = path.includes('?') ? '&' : '?';
   const urlWithDevId = `${path}${separator}devid=${devId}`;
-  
-  const signature = hmac("sha1", apiKey, urlWithDevId, "utf8", "hex");
-  
+
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(apiKey),
+    { name: 'HMAC', hash: 'SHA-1' },
+    false,
+    ['sign']
+  );
+  const sig = await crypto.subtle.sign('HMAC', key, encoder.encode(urlWithDevId));
+  const signature = Array.from(new Uint8Array(sig))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+
   return `https://timetableapi.ptv.vic.gov.au${urlWithDevId}&signature=${signature}`;
 }
 
@@ -22,7 +32,7 @@ serve(async (req) => {
 
   try {
     const { path } = await req.json();
-    
+
     if (!path || typeof path !== 'string') {
       return new Response(JSON.stringify({ error: 'Missing path parameter' }), {
         status: 400,
@@ -40,8 +50,8 @@ serve(async (req) => {
       });
     }
 
-    const signedUrl = signUrl(path, devId, apiKey);
-    
+    const signedUrl = await signUrl(path, devId, apiKey);
+
     const ptvResponse = await fetch(signedUrl, {
       headers: { 'Accept': 'application/json' },
     });
