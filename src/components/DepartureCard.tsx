@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { PTVDeparture } from '@/lib/ptv-api';
 import { TransportBadge } from './TransportBadge';
 import { cn } from '@/lib/utils';
+import { Radio } from 'lucide-react';
 
 interface DepartureCardProps {
   departure: PTVDeparture;
@@ -9,6 +10,7 @@ interface DepartureCardProps {
   routeName?: string;
   routeNumber?: string;
   directionName?: string;
+  onTrackRoute?: () => void;
 }
 
 export function DepartureCard({
