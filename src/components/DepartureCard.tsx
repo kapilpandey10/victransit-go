@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { PTVDeparture } from '@/lib/ptv-api';
 import { TransportBadge } from './TransportBadge';
 import { cn } from '@/lib/utils';
+import { Radio } from 'lucide-react';
 
 interface DepartureCardProps {
   departure: PTVDeparture;
@@ -9,6 +10,7 @@ interface DepartureCardProps {
   routeName?: string;
   routeNumber?: string;
   directionName?: string;
+  onTrackRoute?: () => void;
 }
 
 export function DepartureCard({
@@ -17,6 +19,7 @@ export function DepartureCard({
   routeName,
   routeNumber,
   directionName,
+  onTrackRoute,
 }: DepartureCardProps) {
   const isRealtime = !!departure.estimated_departure_utc;
   const departureTime = departure.estimated_departure_utc || departure.scheduled_departure_utc;
@@ -65,19 +68,31 @@ export function DepartureCard({
         </div>
       </div>
 
-      {/* Countdown */}
-      <div className="flex-shrink-0 text-right">
-        <div
-          className={cn(
-            'text-lg font-bold tabular-nums',
-            isRealtime ? 'text-realtime animate-pulse-realtime' : 'text-scheduled',
-            isNow && 'text-xl'
-          )}
-        >
-          {countdown}
-        </div>
-        <div className="text-[10px] text-muted-foreground uppercase tracking-wider">
-          {isRealtime ? 'Live' : 'Sched'}
+      {/* Countdown + track */}
+      <div className="flex-shrink-0 flex items-center gap-2">
+        {onTrackRoute && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onTrackRoute(); }}
+            className="p-1.5 rounded-full hover:bg-accent transition-colors"
+            aria-label="Track this route live"
+            title="Track route"
+          >
+            <Radio className="w-4 h-4 text-primary" />
+          </button>
+        )}
+        <div className="text-right">
+          <div
+            className={cn(
+              'text-lg font-bold tabular-nums',
+              isRealtime ? 'text-realtime animate-pulse-realtime' : 'text-scheduled',
+              isNow && 'text-xl'
+            )}
+          >
+            {countdown}
+          </div>
+          <div className="text-[10px] text-muted-foreground uppercase tracking-wider">
+            {isRealtime ? 'Live' : 'Sched'}
+          </div>
         </div>
       </div>
     </div>

@@ -1,8 +1,10 @@
 import { useState, useCallback } from 'react';
 import { useGeolocation } from '@/hooks/useGeolocation';
 import { useNearbyStops, useDepartures, useDisruptions } from '@/hooks/usePTVData';
+import { useSearch } from '@/hooks/useSearch';
+import { useRouteTracking } from '@/hooks/useRouteTracking';
 import { useFavoritesStore } from '@/stores/favoritesStore';
-import { PTVStop } from '@/lib/ptv-api';
+import { PTVStop, PTVRoute } from '@/lib/ptv-api';
 import { TransportMap } from '@/components/TransportMap';
 import { BottomSheet } from '@/components/BottomSheet';
 import { StopCard, StopCardSkeleton } from '@/components/StopCard';
@@ -10,16 +12,23 @@ import { DepartureCard, DepartureCardSkeleton } from '@/components/DepartureCard
 import { DisruptionBanner } from '@/components/DisruptionBanner';
 import { TransportBadge } from '@/components/TransportBadge';
 import { OfflineBanner } from '@/components/OfflineBanner';
-import { MapPin, ArrowLeft, RefreshCw, Star, AlertTriangle, Train, Locate } from 'lucide-react';
+import { SearchBar } from '@/components/SearchBar';
+import { RouteTrackerView } from '@/components/RouteTrackerView';
+import { MapPin, ArrowLeft, RefreshCw, Star, AlertTriangle, Locate } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
+type ViewMode = 'main' | 'stop' | 'route';
+
 const Index = () => {
-  const { latitude, longitude, loading: geoLoading, denied, requestLocation } = useGeolocation();
+  const { latitude, longitude, denied, requestLocation } = useGeolocation();
   const { stops, loading: stopsLoading, refresh: refreshStops } = useNearbyStops(latitude, longitude);
   const { disruptions } = useDisruptions();
   const { favorites } = useFavoritesStore();
+  const { query, results, loading: searchLoading, search, clearSearch } = useSearch();
 
+  const [viewMode, setViewMode] = useState<ViewMode>('main');
   const [selectedStop, setSelectedStop] = useState<PTVStop | null>(null);
+  const [selectedRoute, setSelectedRoute] = useState<PTVRoute | null>(null);
   const [activeTab, setActiveTab] = useState<'nearby' | 'favorites' | 'disruptions'>('nearby');
 
   const {
@@ -32,28 +41,47 @@ const Index = () => {
     selectedStop?.stop_id ?? null
   );
 
+  const {
+    runs: liveRuns,
+    stops: routeStops,
+    directions,
+    selectedDirection,
+    setSelectedDirection,
+    loading: routeLoading,
+    refresh: refreshRoute,
+  } = useRouteTracking(
+    selectedRoute?.route_id ?? null,
+    selectedRoute?.route_type ?? null
+  );
+
   const handleStopClick = useCallback((stop: PTVStop) => {
     setSelectedStop(stop);
+    setSelectedRoute(null);
+    setViewMode('stop');
+  }, []);
+
+  const handleRouteSelect = useCallback((route: PTVRoute) => {
+    setSelectedRoute(route);
+    setSelectedStop(null);
+    setViewMode('route');
   }, []);
 
   const handleBack = useCallback(() => {
     setSelectedStop(null);
+    setSelectedRoute(null);
+    setViewMode('main');
   }, []);
 
-  const handleRefresh = useCallback(() => {
-    if (selectedStop) {
-      refreshDepartures();
-    } else {
-      refreshStops();
-    }
-  }, [selectedStop, refreshDepartures, refreshStops]);
-
+  // Determine what to show on the map
   const mapCenter: [number, number] = selectedStop
     ? [selectedStop.stop_latitude, selectedStop.stop_longitude]
     : [latitude || -37.8136, longitude || 144.9631];
 
   const userLocation: [number, number] | null =
     latitude && longitude ? [latitude, longitude] : null;
+
+  // When viewing a route, show route stops on map; otherwise nearby stops
+  const mapStops = viewMode === 'route' ? [] : stops;
 
   return (
     <div className="h-screen w-screen overflow-hidden relative">
@@ -63,24 +91,30 @@ const Index = () => {
       <div className="absolute inset-0 z-0">
         <TransportMap
           center={mapCenter}
-          stops={stops}
+          stops={mapStops}
           onStopClick={handleStopClick}
           userLocation={userLocation}
+          vehiclePositions={viewMode === 'route' ? liveRuns : []}
+          routeStops={viewMode === 'route' ? routeStops : []}
         />
       </div>
 
-      {/* Top bar */}
+      {/* Top bar with search */}
       <div className="absolute top-0 inset-x-0 z-10 p-4 pointer-events-none">
         <div className="flex items-center gap-2 pointer-events-auto">
-          <div className="bg-card/95 backdrop-blur-md rounded-xl shadow-lg px-4 py-2.5 flex items-center gap-2 flex-1">
-            <Train className="w-5 h-5 text-primary" />
-            <span className="font-bold text-foreground text-sm">PTV Tracker</span>
-            <span className="text-xs text-muted-foreground ml-1">Melbourne</span>
-          </div>
+          <SearchBar
+            query={query}
+            onSearch={search}
+            onClear={clearSearch}
+            loading={searchLoading}
+            results={results}
+            onStopSelect={handleStopClick}
+            onRouteSelect={handleRouteSelect}
+          />
           <Button
             size="icon"
             variant="secondary"
-            className="rounded-xl shadow-lg bg-card/95 backdrop-blur-md h-10 w-10"
+            className="rounded-xl shadow-lg bg-card/95 backdrop-blur-md h-10 w-10 flex-shrink-0"
             onClick={requestLocation}
             aria-label="Center on my location"
           >
@@ -92,7 +126,7 @@ const Index = () => {
           <div className="mt-2 pointer-events-auto bg-bus/10 border border-bus/20 rounded-xl px-4 py-2.5 flex items-center gap-2">
             <MapPin className="w-4 h-4 text-bus" />
             <p className="text-xs text-foreground">
-              Location access denied. Showing Melbourne CBD. Enable location in browser settings for nearby stops.
+              Location access denied. Showing Melbourne CBD.
             </p>
           </div>
         )}
@@ -100,7 +134,23 @@ const Index = () => {
 
       {/* Bottom Sheet */}
       <BottomSheet>
-        {selectedStop ? (
+        {viewMode === 'route' && selectedRoute ? (
+          <RouteTrackerView
+            route={selectedRoute}
+            stops={routeStops}
+            runs={liveRuns}
+            directions={directions}
+            selectedDirection={selectedDirection}
+            onSelectDirection={setSelectedDirection}
+            loading={routeLoading}
+            onBack={handleBack}
+            onRefresh={refreshRoute}
+            onStopClick={(stop) => {
+              // Set stop route_type from the route
+              handleStopClick({ ...stop, route_type: selectedRoute.route_type });
+            }}
+          />
+        ) : viewMode === 'stop' && selectedStop ? (
           /* Departure Board */
           <div className="space-y-3">
             <div className="flex items-center gap-2">
@@ -137,6 +187,7 @@ const Index = () => {
                       routeName={route?.route_name}
                       routeNumber={route?.route_number}
                       directionName={direction?.direction_name}
+                      onTrackRoute={route ? () => handleRouteSelect(route) : undefined}
                     />
                   );
                 })
@@ -193,7 +244,7 @@ const Index = () => {
                   Array.from({ length: 5 }).map((_, i) => <StopCardSkeleton key={i} />)
                 ) : stops.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-8">
-                    No stops found nearby. Try adjusting your location.
+                    No stops found nearby. Try searching for a stop or route.
                   </p>
                 ) : (
                   stops.slice(0, 20).map((stop) => (

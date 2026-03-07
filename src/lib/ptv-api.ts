@@ -41,6 +41,7 @@ export interface PTVStop {
   route_type: number;
   stop_distance?: number;
   stop_suburb?: string;
+  stop_sequence?: number;
   routes?: PTVRoute[];
 }
 
@@ -49,6 +50,7 @@ export interface PTVRoute {
   route_name: string;
   route_number: string;
   route_type: number;
+  route_gtfs_id?: string;
 }
 
 export interface PTVDeparture {
@@ -80,6 +82,50 @@ export interface PTVDisruption {
   routes: PTVRoute[];
   colour?: string;
 }
+
+export interface PTVDirection {
+  direction_id: number;
+  direction_name: string;
+  route_id: number;
+  route_type: number;
+}
+
+export interface PTVRunPosition {
+  latitude: number;
+  longitude: number;
+  bearing?: number | null;
+  easting?: number | null;
+  northing?: number | null;
+  expiry_time?: string;
+  direction?: number | null;
+}
+
+export interface PTVRun {
+  run_id: number;
+  run_ref: string;
+  route_id: number;
+  route_type: number;
+  direction_id: number;
+  status: string;
+  express_stop_count?: number;
+  vehicle_position?: PTVRunPosition | null;
+  vehicle_descriptor?: {
+    operator?: string;
+    id?: string;
+    low_floor?: boolean;
+    air_conditioned?: boolean;
+    description?: string;
+    supplier?: string;
+  } | null;
+  destination_name?: string;
+}
+
+export interface PTVSearchResult {
+  stops: PTVStop[];
+  routes: PTVRoute[];
+}
+
+// ── API functions ──
 
 export async function fetchNearbyStops(lat: number, lon: number, routeTypes?: number[], maxDistance = 500) {
   let path = `/v3/stops/location/${lat},${lon}?max_distance=${maxDistance}`;
@@ -116,4 +162,40 @@ export async function fetchDisruptions(routeTypes?: number[]) {
     });
   }
   return allDisruptions;
+}
+
+export async function searchStopsAndRoutes(term: string): Promise<PTVSearchResult> {
+  const path = `/v3/search/${encodeURIComponent(term)}?route_types=0&route_types=1&route_types=2&include_outlets=false`;
+  const data = await fetchPTV(path);
+  return {
+    stops: (data.stops || []) as PTVStop[],
+    routes: (data.routes || []) as PTVRoute[],
+  };
+}
+
+export async function fetchRouteDirections(routeId: number): Promise<PTVDirection[]> {
+  const data = await fetchPTV(`/v3/directions/route/${routeId}`);
+  return (data.directions || []) as PTVDirection[];
+}
+
+export async function fetchRouteStops(routeId: number, routeType: number, directionId?: number): Promise<PTVStop[]> {
+  let path = `/v3/stops/route/${routeId}/route_type/${routeType}`;
+  if (directionId !== undefined) {
+    path += `?direction_id=${directionId}`;
+  }
+  const data = await fetchPTV(path);
+  return (data.stops || []) as PTVStop[];
+}
+
+export async function fetchRunsByRoute(routeId: number, routeType: number): Promise<PTVRun[]> {
+  const path = `/v3/runs/route/${routeId}/route_type/${routeType}?expand=VehiclePosition&expand=VehicleDescriptor`;
+  const data = await fetchPTV(path);
+  return (data.runs || []) as PTVRun[];
+}
+
+export async function fetchRunDetail(runRef: string, routeType: number): Promise<PTVRun> {
+  const path = `/v3/runs/${runRef}/route_type/${routeType}?expand=VehiclePosition&expand=VehicleDescriptor`;
+  const data = await fetchPTV(path);
+  const runs = (data.runs || []) as PTVRun[];
+  return runs[0];
 }
