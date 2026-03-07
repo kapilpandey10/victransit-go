@@ -10,8 +10,9 @@ function signUrl(path: string, devId: string, apiKey: string): string {
   const separator = path.includes('?') ? '&' : '?';
   const urlWithDevId = `${path}${separator}devid=${devId}`;
   
-  const hmac = new HmacSha1(apiKey);
-  hmac.update(urlWithDevId);
+  const signature = hmac("sha1", apiKey, urlWithDevId, "utf8", "hex");
+  
+  return `https://timetableapi.ptv.vic.gov.au${urlWithDevId}&signature=${signature}`;
   const signature = Array.from(new Uint8Array(hmac.arrayBuffer()))
     .map(b => b.toString(16).padStart(2, '0'))
     .join('');
