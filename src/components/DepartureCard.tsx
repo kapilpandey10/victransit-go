@@ -112,7 +112,7 @@ export function DepartureCard({
           </div>
         </div>
       </div>
-    </div>
+    </button>
   );
 }
 
