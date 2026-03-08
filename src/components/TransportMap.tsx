@@ -63,9 +63,10 @@ function createVehicleIcon(routeType: number) {
   });
 }
 
-function createRouteStopIcon() {
+function createRouteStopIcon(routeType: number) {
+  const color = getColorForRouteType(routeType);
   return L.divIcon({
-    html: `<div style="width:10px;height:10px;background:white;border:2px solid #0066cc;border-radius:50%;box-shadow:0 1px 3px rgba(0,0,0,0.3);"></div>`,
+    html: `<div style="width:10px;height:10px;background:white;border:2.5px solid ${color};border-radius:50%;box-shadow:0 1px 3px rgba(0,0,0,0.3);"></div>`,
     className: '',
     iconSize: [10, 10],
     iconAnchor: [5, 5],

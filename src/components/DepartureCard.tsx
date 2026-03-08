@@ -35,6 +35,12 @@ export function DepartureCard({
     if (diffMins < 60) return `${diffMins} min`;
     const hrs = Math.floor(diffMins / 60);
     const mins = diffMins % 60;
+    if (hrs >= 24) {
+      const days = Math.floor(hrs / 24);
+      const remHrs = hrs % 24;
+      if (remHrs === 0) return `${days}d`;
+      return `${days}d ${remHrs}h`;
+    }
     if (mins === 0) return `${hrs} hr`;
     return `${hrs}h ${mins}m`;
   }, [departureTime]);
