@@ -32,7 +32,11 @@ export function DepartureCard({
 
     if (diffMins <= 0) return 'Now';
     if (diffMins === 1) return '1 min';
-    return `${diffMins} min`;
+    if (diffMins < 60) return `${diffMins} min`;
+    const hrs = Math.floor(diffMins / 60);
+    const mins = diffMins % 60;
+    if (mins === 0) return `${hrs} hr`;
+    return `${hrs}h ${mins}m`;
   }, [departureTime]);
 
   const timeStr = useMemo(() => {

@@ -187,7 +187,7 @@ const Index = () => {
                       routeName={route?.route_name}
                       routeNumber={route?.route_number}
                       directionName={direction?.direction_name}
-                      onTrackRoute={route ? () => handleRouteSelect(route) : undefined}
+                      onTrackRoute={route ? () => handleRouteSelect({ ...route, route_type: selectedStop.route_type }) : undefined}
                     />
                   );
                 })
