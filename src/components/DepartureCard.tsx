@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { PTVDeparture } from '@/lib/ptv-api';
 import { TransportBadge } from './TransportBadge';
 import { cn } from '@/lib/utils';
-import { Radio } from 'lucide-react';
+import { Radio, Clock } from 'lucide-react';
 
 interface DepartureCardProps {
   departure: PTVDeparture;
@@ -47,10 +47,10 @@ export function DepartureCard({
   const isNow = countdown === 'Now';
 
   return (
-    <div className="flex items-center gap-3 p-3 rounded-lg bg-card border border-border hover:border-primary/20 transition-colors">
+    <div className="flex items-center gap-3 p-3.5 rounded-xl bg-card border border-border hover:border-primary/20 hover:shadow-sm transition-all">
       {/* Route info */}
       <div className="flex-shrink-0">
-        <TransportBadge routeType={routeType} />
+        <TransportBadge routeType={routeType} showLabel={false} />
       </div>
 
       <div className="flex-1 min-w-0">
@@ -63,9 +63,10 @@ export function DepartureCard({
           </span>
         </div>
         <div className="flex items-center gap-2 mt-0.5">
+          <Clock className="w-3 h-3 text-muted-foreground" />
           <span className="text-xs text-muted-foreground">{timeStr}</span>
           {departure.platform_number && (
-            <span className="text-xs text-muted-foreground">
+            <span className="text-xs bg-secondary text-secondary-foreground px-1.5 py-0.5 rounded font-medium">
               Plat. {departure.platform_number}
             </span>
           )}
@@ -77,25 +78,28 @@ export function DepartureCard({
         {onTrackRoute && (
           <button
             onClick={(e) => { e.stopPropagation(); onTrackRoute(); }}
-            className="p-1.5 rounded-full hover:bg-accent transition-colors"
+            className="p-2 rounded-lg hover:bg-accent transition-colors border border-border"
             aria-label="Track this route live"
             title="Track route"
           >
-            <Radio className="w-4 h-4 text-primary" />
+            <Radio className="w-4 h-4 text-realtime" />
           </button>
         )}
-        <div className="text-right">
+        <div className="text-right min-w-[52px]">
           <div
             className={cn(
-              'text-lg font-bold tabular-nums',
+              'text-lg font-bold tabular-nums leading-tight',
               isRealtime ? 'text-realtime animate-pulse-realtime' : 'text-scheduled',
               isNow && 'text-xl'
             )}
           >
             {countdown}
           </div>
-          <div className="text-[10px] text-muted-foreground uppercase tracking-wider">
-            {isRealtime ? 'Live' : 'Sched'}
+          <div className={cn(
+            'text-[10px] uppercase tracking-wider font-semibold',
+            isRealtime ? 'text-realtime' : 'text-muted-foreground'
+          )}>
+            {isRealtime ? '● Live' : 'Sched'}
           </div>
         </div>
       </div>
@@ -105,13 +109,13 @@ export function DepartureCard({
 
 export function DepartureCardSkeleton() {
   return (
-    <div className="flex items-center gap-3 p-3 rounded-lg bg-card border border-border">
-      <div className="w-14 h-6 rounded-full skeleton-shimmer" />
+    <div className="flex items-center gap-3 p-3.5 rounded-xl bg-card border border-border">
+      <div className="w-8 h-6 rounded-full skeleton-shimmer" />
       <div className="flex-1 space-y-2">
         <div className="w-3/4 h-4 rounded skeleton-shimmer" />
         <div className="w-1/2 h-3 rounded skeleton-shimmer" />
       </div>
-      <div className="w-12 h-8 rounded skeleton-shimmer" />
+      <div className="w-14 h-10 rounded skeleton-shimmer" />
     </div>
   );
 }

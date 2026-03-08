@@ -1,7 +1,7 @@
-import { PTVRoute, PTVStop, PTVRun, PTVDirection, ROUTE_TYPE_LABELS } from '@/lib/ptv-api';
-import { TransportBadge } from './TransportBadge';
+import { PTVRoute, PTVStop, PTVRun, PTVDirection } from '@/lib/ptv-api';
+import { TransportBadge, TransportIcon } from './TransportBadge';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, RefreshCw, Radio, MapPin } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Radio, MapPin, Navigation } from 'lucide-react';
 
 interface RouteTrackerViewProps {
   route: PTVRoute;
@@ -41,10 +41,10 @@ export function RouteTrackerView({
           <div className="flex items-center gap-2">
             <TransportBadge routeType={route.route_type} />
             {route.route_number && (
-              <span className="font-bold text-foreground">{route.route_number}</span>
+              <span className="font-bold text-foreground text-lg">{route.route_number}</span>
             )}
           </div>
-          <h2 className="font-bold text-foreground text-sm truncate mt-0.5">
+          <h2 className="font-medium text-muted-foreground text-sm truncate mt-0.5">
             {route.route_name}
           </h2>
         </div>
@@ -54,10 +54,13 @@ export function RouteTrackerView({
       </div>
 
       {/* Live vehicles count */}
-      <div className="flex items-center gap-2 bg-realtime/10 border border-realtime/20 rounded-lg px-3 py-2">
+      <div className="flex items-center gap-2 bg-realtime/10 border border-realtime/20 rounded-xl px-3 py-2.5">
         <Radio className="w-4 h-4 text-realtime animate-pulse-realtime" />
         <span className="text-sm font-medium text-foreground">
           {liveCount} vehicle{liveCount !== 1 ? 's' : ''} tracked live
+        </span>
+        <span className="ml-auto text-[10px] uppercase tracking-wider text-realtime font-semibold animate-pulse-realtime">
+          ● Live
         </span>
       </div>
 
@@ -89,26 +92,32 @@ export function RouteTrackerView({
           {runs.map((run) => (
             <div
               key={run.run_id}
-              className="flex items-center gap-3 p-2.5 rounded-lg bg-card border border-border"
+              className="flex items-center gap-3 p-3 rounded-xl bg-card border border-border"
             >
-              <div className="w-8 h-8 rounded-full bg-realtime/10 flex items-center justify-center">
-                <Radio className="w-3.5 h-3.5 text-realtime" />
+              <div className="w-9 h-9 rounded-full bg-realtime/10 flex items-center justify-center">
+                <TransportIcon routeType={route.route_type} size={18} className="!text-realtime" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-foreground truncate">
-                  {run.destination_name || 'In service'}
-                </p>
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <div className="flex items-center gap-2">
+                  <Navigation className="w-3 h-3 text-muted-foreground" />
+                  <p className="text-sm font-medium text-foreground truncate">
+                    {run.destination_name || 'In service'}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
                   {run.vehicle_descriptor?.description && (
                     <span>{run.vehicle_descriptor.description}</span>
                   )}
                   {run.vehicle_descriptor?.low_floor && (
-                    <span className="text-primary">♿ Low floor</span>
+                    <span className="text-primary font-medium">♿ Low floor</span>
+                  )}
+                  {run.vehicle_descriptor?.air_conditioned && (
+                    <span className="text-primary font-medium">❄ A/C</span>
                   )}
                 </div>
               </div>
-              <div className="text-xs text-realtime font-medium animate-pulse-realtime">
-                LIVE
+              <div className="text-xs text-realtime font-semibold animate-pulse-realtime">
+                ● LIVE
               </div>
             </div>
           ))}
@@ -123,21 +132,31 @@ export function RouteTrackerView({
         <div className="relative">
           {/* Route line */}
           <div className="absolute left-[18px] top-3 bottom-3 w-0.5 bg-border" />
-          {stops.map((stop, i) => (
-            <button
-              key={stop.stop_id}
-              onClick={() => onStopClick(stop)}
-              className="w-full flex items-center gap-3 py-2 px-1 hover:bg-accent/50 rounded-lg transition-colors relative text-left"
-            >
-              <div className="w-[22px] flex items-center justify-center relative z-10">
-                <div className="w-3 h-3 rounded-full bg-card border-2 border-primary" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm text-foreground truncate">{stop.stop_name}</p>
-              </div>
-              <MapPin className="w-3 h-3 text-muted-foreground flex-shrink-0" />
-            </button>
-          ))}
+          {stops.map((stop, i) => {
+            const isFirst = i === 0;
+            const isLast = i === stops.length - 1;
+            return (
+              <button
+                key={stop.stop_id}
+                onClick={() => onStopClick(stop)}
+                className="w-full flex items-center gap-3 py-2 px-1 hover:bg-accent/50 rounded-lg transition-colors relative text-left group"
+              >
+                <div className="w-[22px] flex items-center justify-center relative z-10">
+                  {isFirst || isLast ? (
+                    <div className="w-4 h-4 rounded-full bg-primary border-2 border-card shadow-sm" />
+                  ) : (
+                    <div className="w-3 h-3 rounded-full bg-card border-2 border-primary" />
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className={`text-sm truncate ${isFirst || isLast ? 'font-semibold text-foreground' : 'text-foreground'}`}>
+                    {stop.stop_name}
+                  </p>
+                </div>
+                <MapPin className="w-3 h-3 text-muted-foreground flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
+              </button>
+            );
+          })}
         </div>
       </div>
     </div>
