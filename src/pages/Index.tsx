@@ -96,6 +96,7 @@ const Index = () => {
           userLocation={userLocation}
           vehiclePositions={viewMode === 'route' ? liveRuns : []}
           routeStops={viewMode === 'route' ? routeStops : []}
+          routeType={selectedRoute?.route_type ?? null}
         />
       </div>
 
