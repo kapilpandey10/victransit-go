@@ -96,6 +96,7 @@ const Index = () => {
           userLocation={userLocation}
           vehiclePositions={viewMode === 'route' ? liveRuns : []}
           routeStops={viewMode === 'route' ? routeStops : []}
+          routeType={selectedRoute?.route_type ?? null}
         />
       </div>
 
@@ -179,15 +180,16 @@ const Index = () => {
                 departures.map((dep, i) => {
                   const route = meta.routes?.[dep.route_id];
                   const direction = meta.directions?.[dep.direction_id];
+                  const depRouteType = route?.route_type ?? selectedStop.route_type;
                   return (
                     <DepartureCard
                       key={`${dep.stop_id}-${dep.scheduled_departure_utc}-${i}`}
                       departure={dep}
-                      routeType={selectedStop.route_type}
+                      routeType={depRouteType}
                       routeName={route?.route_name}
                       routeNumber={route?.route_number}
                       directionName={direction?.direction_name}
-                      onTrackRoute={route ? () => handleRouteSelect({ ...route, route_type: selectedStop.route_type }) : undefined}
+                      onTrackRoute={route ? () => handleRouteSelect({ ...route, route_type: depRouteType }) : undefined}
                     />
                   );
                 })

@@ -18,6 +18,7 @@ interface TransportMapProps {
   userLocation?: [number, number] | null;
   vehiclePositions?: PTVRun[];
   routeStops?: PTVStop[];
+  routeType?: number | null;
 }
 
 const routeColorHex: Record<string, string> = {
@@ -62,9 +63,10 @@ function createVehicleIcon(routeType: number) {
   });
 }
 
-function createRouteStopIcon() {
+function createRouteStopIcon(routeType: number) {
+  const color = getColorForRouteType(routeType);
   return L.divIcon({
-    html: `<div style="width:10px;height:10px;background:white;border:2px solid #0066cc;border-radius:50%;box-shadow:0 1px 3px rgba(0,0,0,0.3);"></div>`,
+    html: `<div style="width:10px;height:10px;background:white;border:2.5px solid ${color};border-radius:50%;box-shadow:0 1px 3px rgba(0,0,0,0.3);"></div>`,
     className: '',
     iconSize: [10, 10],
     iconAnchor: [5, 5],
@@ -82,6 +84,7 @@ export function TransportMap({
   userLocation,
   vehiclePositions = [],
   routeStops = [],
+  routeType = null,
 }: TransportMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -196,15 +199,18 @@ export function TransportMap({
 
     if (routeStops.length === 0) return;
 
+    const rt = routeType ?? routeStops[0]?.route_type ?? 0;
+    const lineColor = getColorForRouteType(rt);
+
     const coords: [number, number][] = routeStops
       .filter((s) => s.stop_latitude && s.stop_longitude)
       .map((s) => [s.stop_latitude, s.stop_longitude]);
 
     if (coords.length > 1) {
       const polyline = L.polyline(coords, {
-        color: '#0066cc',
-        weight: 3,
-        opacity: 0.6,
+        color: lineColor,
+        weight: 4,
+        opacity: 0.7,
         dashArray: '8 6',
       }).addTo(layer);
 
@@ -212,7 +218,7 @@ export function TransportMap({
       routeStops.forEach((stop) => {
         if (!stop.stop_latitude || !stop.stop_longitude) return;
         const m = L.marker([stop.stop_latitude, stop.stop_longitude], {
-          icon: createRouteStopIcon(),
+          icon: createRouteStopIcon(rt),
         });
         m.bindPopup(`<strong>${escapeHtml(stop.stop_name)}</strong>`);
         m.addTo(layer);
@@ -221,7 +227,7 @@ export function TransportMap({
       // Fit bounds to show full route
       map.fitBounds(polyline.getBounds(), { padding: [50, 50], maxZoom: 14 });
     }
-  }, [routeStops]);
+  }, [routeStops, routeType]);
 
   return <div ref={containerRef} className="w-full h-full" aria-label="Transport map" />;
 }
