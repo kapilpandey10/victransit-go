@@ -53,7 +53,10 @@ export function DepartureCard({
   const isNow = countdown === 'Now';
 
   return (
-    <div className="flex items-center gap-3 p-3.5 rounded-xl bg-card border border-border hover:border-primary/20 hover:shadow-sm transition-all">
+    <button
+      onClick={() => onTrackRoute?.()}
+      className="w-full flex items-center gap-3 p-3.5 rounded-xl bg-card border border-border hover:border-primary/20 hover:shadow-sm transition-all text-left cursor-pointer"
+    >
       {/* Route info */}
       <div className="flex-shrink-0">
         <TransportBadge routeType={routeType} showLabel={false} />
@@ -82,14 +85,7 @@ export function DepartureCard({
       {/* Countdown + track */}
       <div className="flex-shrink-0 flex items-center gap-2">
         {onTrackRoute && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onTrackRoute(); }}
-            className="p-2 rounded-lg hover:bg-accent transition-colors border border-border"
-            aria-label="Track this route live"
-            title="Track route"
-          >
-            <Radio className="w-4 h-4 text-realtime" />
-          </button>
+          <Radio className="w-4 h-4 text-realtime animate-pulse-realtime" />
         )}
         <div className="text-right min-w-[52px]">
           <div
@@ -109,7 +105,7 @@ export function DepartureCard({
           </div>
         </div>
       </div>
-    </div>
+    </button>
   );
 }
 
