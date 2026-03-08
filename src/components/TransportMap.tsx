@@ -18,6 +18,7 @@ interface TransportMapProps {
   userLocation?: [number, number] | null;
   vehiclePositions?: PTVRun[];
   routeStops?: PTVStop[];
+  routeType?: number | null;
 }
 
 const routeColorHex: Record<string, string> = {
