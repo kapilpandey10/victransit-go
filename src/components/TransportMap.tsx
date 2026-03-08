@@ -83,6 +83,7 @@ export function TransportMap({
   userLocation,
   vehiclePositions = [],
   routeStops = [],
+  routeType = null,
 }: TransportMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
