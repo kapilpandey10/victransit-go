@@ -1,0 +1,125 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    @apply font-sans;
+    /* Prevent bounce scroll on iPad when app is installed */
+    overscroll-behavior-y: none;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply font-display tracking-tight;
+  }
+
+  /* Larger, calmer scrollbars for touch users */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-slate-300;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-slate-400;
+  }
+
+  :focus-visible {
+    @apply outline-none ring-2 ring-brand-500 ring-offset-2 ring-offset-sand-100;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex min-h-touch select-none items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition
+      active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply btn bg-brand-700 text-white shadow-soft hover:bg-brand-800;
+  }
+  .btn-secondary {
+    @apply btn border border-slate-200 bg-white text-slate-700 hover:bg-slate-50;
+  }
+  .btn-ghost {
+    @apply btn text-slate-600 hover:bg-slate-100;
+  }
+  .btn-danger {
+    @apply btn bg-rose-600 text-white hover:bg-rose-700;
+  }
+
+  .card {
+    @apply rounded-2xl border border-slate-200/70 bg-white p-5 shadow-soft;
+  }
+
+  .field-label {
+    @apply mb-1.5 block text-sm font-bold text-slate-700;
+  }
+
+  .input {
+    @apply w-full min-h-touch rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-base text-slate-800
+      placeholder:text-slate-400 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-200;
+  }
+
+  .textarea {
+    @apply input resize-y leading-relaxed;
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold;
+  }
+
+  .prose-educator {
+    @apply text-[15px] leading-relaxed text-slate-700;
+  }
+  .prose-educator p {
+    @apply mb-3;
+  }
+  .prose-educator ul {
+    @apply mb-3 list-disc space-y-1 pl-5;
+  }
+  .prose-educator ol {
+    @apply mb-3 list-decimal space-y-1 pl-5;
+  }
+  .prose-educator h3 {
+    @apply mb-2 mt-4 text-base font-extrabold text-slate-900;
+  }
+  .prose-educator strong {
+    @apply font-bold text-slate-900;
+  }
+  .prose-educator code {
+    @apply rounded bg-slate-100 px-1.5 py-0.5 text-[13px];
+  }
+}
+
+@layer utilities {
+  .pt-safe {
+    padding-top: var(--safe-top);
+  }
+  .pb-safe {
+    padding-bottom: var(--safe-bottom);
+  }
+  .scroll-touch {
+    -webkit-overflow-scrolling: touch;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
