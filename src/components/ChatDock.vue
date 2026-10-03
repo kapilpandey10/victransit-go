@@ -4,7 +4,8 @@ import MarkdownView from './MarkdownView.vue'
 import { CHAT_STARTERS } from '@/data/prompts'
 import { useChatStore } from '@/stores/chat'
 import { useUiStore } from '@/stores/ui'
-import { useSpeechInput, useSpeechOutput } from '@/composables/useSpeech'
+import { useSpeechOutput } from '@/composables/useSpeech'
+import { useVoice } from '@/composables/useVoice'
 
 const chat = useChatStore()
 const ui = useUiStore()
@@ -13,13 +14,20 @@ const draft = ref('')
 const scroller = ref<HTMLElement | null>(null)
 const speakReplies = ref(false)
 
-const speech = useSpeechInput({ lang: 'en-AU' })
+const voice = useVoice()
 const voiceOut = useSpeechOutput()
 
 watch(
-  () => speech.fullText.value,
+  () => voice.lastTranscript.value,
   value => {
     if (value) draft.value = value
+  },
+)
+
+watch(
+  () => voice.browser.fullText.value,
+  value => {
+    if (voice.settings.value.source === 'browser' && value) draft.value = value
   },
 )
 
@@ -43,14 +51,34 @@ watch(
 
 async function submit() {
   const text = draft.value.trim()
-  if (!text || chat.streaming) return
-  if (speech.listening.value) speech.stop()
+  if (!text || chat.streaming || voice.busy.value) return
+  stopVoiceCapture()
   draft.value = ''
-  speech.reset()
+  voice.resetTranscript()
   await chat.send(text)
   if (speakReplies.value && chat.lastAssistant) {
     voiceOut.speak(chat.lastAssistant)
   }
+}
+
+function stopVoiceCapture() {
+  if (voice.recording.value) voice.cancel()
+  if (voice.browser.listening.value) voice.browser.stop()
+}
+
+async function onMicTap() {
+  // Browser path: hands-free continuous recognition (free, no credits).
+  if (voice.settings.value.source === 'browser') {
+    voice.toggleBrowser()
+    return
+  }
+  // Recording path: tap to start, tap again to stop + transcribe (✍️ icon).
+  if (voice.recording.value) {
+    const text = await voice.stopAndTranscribe()
+    if (text) draft.value = text
+    return
+  }
+  await voice.startRecording()
 }
 
 function useStarter(prompt: string) {
@@ -59,9 +87,16 @@ function useStarter(prompt: string) {
 }
 
 function close() {
-  if (speech.listening.value) speech.stop()
+  stopVoiceCapture()
   voiceOut.stop()
   ui.toggleChat(false)
+}
+
+const micLabel = () => {
+  if (voice.transcribing.value) return 'Transcribing…'
+  if (voice.recording.value) return 'Stop and transcribe'
+  if (voice.browser.listening.value) return 'Stop listening'
+  return 'Speak your message'
 }
 </script>
 
@@ -125,7 +160,18 @@ function close() {
             <p class="text-sm text-slate-500 dark:text-slate-400">
               Ask anything about inquiry planning, EYLF outcomes, learning stories,
               Reggio Emilia or learning theories. Voice input works on iPad — tap the
-              microphone.
+              microphone to record, tap again to transcribe.
+            </p>
+            <p class="text-[11px] text-slate-400 dark:text-slate-500">
+              {{
+                voice.settings.value.source === 'browser'
+                  ? '🎤 Free on-device speech · no credits used'
+                  : voice.settings.value.source === 'puter'
+                    ? '🎤 Free Puter transcription · zero Groq credit'
+                    : '🎤 Groq Whisper transcription · cheapest turbo model'
+              }}
+              · replies via
+              {{ chat.provider === 'puter' ? 'free Puter AI' : 'Groq gpt-oss-20b' }}
             </p>
             <div class="grid gap-2">
               <button
@@ -178,14 +224,85 @@ function close() {
         </div>
 
         <div
-          v-if="speech.listening.value"
+          v-if="voice.browser.listening.value"
           class="flex items-center gap-2 border-t border-brand-200 bg-brand-50 px-4 py-2 text-xs font-semibold text-brand-800 dark:border-brand-900 dark:bg-brand-950/50 dark:text-brand-200"
         >
           <span class="h-2 w-2 animate-pulse rounded-full bg-rose-500" />
-          Listening… {{ speech.fullText.value || 'speak now' }}
+          Listening… {{ voice.browser.fullText.value || 'speak now' }}
         </div>
 
+        <div
+          v-if="voice.recording.value"
+          class="flex items-center gap-3 border-t border-rose-200 bg-rose-50 px-4 py-2 text-xs font-semibold text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200"
+        >
+          <span class="h-2 w-2 animate-pulse rounded-full bg-rose-500" />
+          <span class="flex-1">Recording… tap ✍️ to transcribe</span>
+          <span
+            class="h-1.5 w-16 overflow-hidden rounded-full bg-rose-200 dark:bg-rose-900"
+            aria-hidden="true"
+          >
+            <span
+              class="block h-full rounded-full bg-rose-500 transition-all"
+              :style="{ width: `${Math.round(voice.level.value * 100)}%` }"
+            />
+          </span>
+        </div>
+
+        <div
+          v-if="voice.transcribing.value"
+          class="flex items-center gap-2 border-t border-brand-200 bg-brand-50 px-4 py-2 text-xs font-semibold text-brand-800 dark:border-brand-900 dark:bg-brand-950/50 dark:text-brand-200"
+        >
+          <span class="h-2 w-2 animate-pulse rounded-full bg-brand-500" />
+          ✍️ Transcribing with
+          {{ voice.settings.value.source === 'puter' ? 'free Puter AI' : 'Groq Whisper' }}…
+        </div>
+
+        <p
+          v-if="voice.error.value"
+          class="border-t border-rose-200 bg-rose-50 px-4 py-2 text-xs text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300"
+        >
+          {{ voice.error.value }}
+        </p>
+
         <footer class="border-t border-slate-200 px-3 py-3 pb-safe dark:border-slate-800">
+          <div class="flex items-center gap-2 pb-2">
+            <span class="text-[11px] font-bold text-slate-400">Voice:</span>
+            <div class="flex gap-1">
+              <button
+                v-for="opt in [
+                  { id: 'groq-whisper', label: '✍️ Whisper' },
+                  { id: 'browser', label: '🎤 Free' },
+                  ...(voice.settings.value.puterEnabled
+                    ? [{ id: 'puter', label: '🆓 Puter' }]
+                    : []),
+                ]"
+                :key="opt.id"
+                class="chip border transition"
+                :class="
+                  voice.settings.value.source === opt.id
+                    ? 'border-brand-400 bg-brand-50 text-brand-800 dark:bg-brand-950/50 dark:text-brand-200'
+                    : 'border-slate-200 text-slate-400 dark:border-slate-700'
+                "
+                :title="
+                  opt.id === 'groq-whisper'
+                    ? 'Record + Groq Whisper transcription (cheapest turbo model)'
+                    : opt.id === 'browser'
+                      ? 'Free on-device speech recognition (no credits)'
+                      : 'Free Puter transcription (zero Groq credit)'
+                "
+                @click="voice.setSource(opt.id as 'groq-whisper' | 'browser' | 'puter')"
+              >
+                {{ opt.label }}
+              </button>
+            </div>
+            <RouterLink
+              to="/settings"
+              class="ml-auto text-[11px] font-bold text-brand-700 underline dark:text-brand-300"
+              @click="close()"
+            >
+              Voice settings
+            </RouterLink>
+          </div>
           <div class="flex items-end gap-2">
             <textarea
               v-model="draft"
@@ -195,13 +312,31 @@ function close() {
               @keydown.enter.exact.prevent="submit()"
             />
             <button
-              v-if="speech.supported"
+              v-if="
+                voice.canRecord.value ||
+                voice.browser.supported ||
+                voice.settings.value.source === 'puter'
+              "
               class="btn-secondary !px-3"
-              :class="speech.listening.value ? '!bg-rose-600 !text-white' : ''"
-              :aria-label="speech.listening.value ? 'Stop listening' : 'Speak your message'"
-              @click="speech.toggle()"
+              :class="
+                voice.recording.value || voice.browser.listening.value
+                  ? '!bg-rose-600 !text-white'
+                  : ''
+              "
+              :aria-label="micLabel()"
+              :title="micLabel()"
+              :disabled="voice.transcribing.value"
+              @click="onMicTap()"
             >
-              <span class="text-lg">🎤</span>
+              <span class="text-lg">{{
+                voice.transcribing.value
+                  ? '✍️'
+                  : voice.recording.value
+                    ? '⏹'
+                    : voice.settings.value.source === 'browser'
+                      ? '🎤'
+                      : '🎙️'
+              }}</span>
             </button>
             <button
               v-if="chat.streaming"
@@ -224,7 +359,14 @@ function close() {
             <button class="underline" @click="chat.newSession()">
               ＋ New chat (clears history)
             </button>
-            <span>Enter to send</span>
+            <span>
+              {{
+                chat.provider === 'puter'
+                  ? '🆓 free Puter AI'
+                  : 'Groq gpt-oss-20b · cheapest'
+              }}
+              · Enter to send
+            </span>
           </div>
         </footer>
       </section>

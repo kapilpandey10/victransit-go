@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { parseJsonLoose } from './ai'
+import { AI_MODELS, parseJsonLoose } from './ai'
+
+describe('AI model allow-list', () => {
+  it('pins the cheapest verified Groq models', () => {
+    expect(AI_MODELS.chat).toBe('openai/gpt-oss-20b')
+    expect(AI_MODELS.transcribe).toBe('whisper-large-v3-turbo')
+    expect(AI_MODELS.chatFallback).toBe('openai/gpt-oss-120b')
+  })
+})
 
 describe('parseJsonLoose', () => {
   it('parses plain JSON', () => {

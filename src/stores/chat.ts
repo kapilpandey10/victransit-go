@@ -1,7 +1,14 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { AiUnavailableError, streamChat, type AiMessage } from '@/services/ai'
-import { DRAFT_KEYS, localId, readLocal, removeLocal, writeLocal } from '@/services/localStore'
+import {
+  DRAFT_KEYS,
+  localId,
+  readLocal,
+  removeLocal,
+  writeLocal,
+} from '@/services/localStore'
+import { readVoiceSettings, streamChatWithPuter } from '@/services/voice'
 import type { ChatContext, ChatMessage } from '@/types'
 
 /**
@@ -16,6 +23,7 @@ export const useChatStore = defineStore('chat', () => {
   const streaming = ref(false)
   const error = ref<string | null>(null)
   const context = ref<ChatContext | null>(null)
+  const provider = ref<'groq' | 'puter'>('groq')
   let controller: AbortController | null = null
 
   const isTemporary = true // documents intent for the UI badge
@@ -44,7 +52,11 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function buildApiMessages(): AiMessage[] {
-    const history: AiMessage[] = messages.value
+    return buildPlainMessages() as AiMessage[]
+  }
+
+  function buildPlainMessages(): { role: string; content: string }[] {
+    const history = messages.value
       .filter(m => !m.error)
       .map(m => ({ role: m.role, content: m.content }))
 
@@ -71,16 +83,29 @@ export const useChatStore = defineStore('chat', () => {
     streaming.value = true
     controller = new AbortController()
 
+    // Puter.js toggle (Settings): free user-pays chat, zero Groq credit.
+    const voice = readVoiceSettings()
+    const usePuter = voice.puterEnabled
+
     try {
-      const full = await streamChat({
-        messages: buildApiMessages(),
-        mode: 'chat',
-        signal: controller.signal,
-        onToken: token => {
-          assistant.content += token
-          persist()
-        },
-      })
+      const onToken = (token: string) => {
+        assistant.content += token
+        persist()
+      }
+      const full = usePuter
+        ? await streamChatWithPuter(buildPlainMessages(), {
+            model: voice.puterModel,
+            maxTokens: 1400,
+            signal: controller.signal,
+            onToken,
+          })
+        : await streamChat({
+            messages: buildApiMessages(),
+            mode: 'chat',
+            signal: controller.signal,
+            onToken,
+          })
+      provider.value = usePuter ? 'puter' : 'groq'
       if (!full) assistant.content = '_(No response received.)_'
     } catch (e) {
       const message =
@@ -120,6 +145,7 @@ export const useChatStore = defineStore('chat', () => {
     streaming,
     error,
     context,
+    provider,
     isTemporary,
     hasMessages,
     lastAssistant,

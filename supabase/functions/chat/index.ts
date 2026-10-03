@@ -4,14 +4,28 @@
 // Secure proxy to the Groq API. The browser can never see the API key:
 // GROQ_API_KEY lives in Supabase project secrets (supabase secrets set ...).
 //
-// Deploy:  supabase functions deploy chat
+// Deploy:  supabase functions deploy chat --no-verify-jwt
 // Secret:  supabase secrets set GROQ_API_KEY=gsk_...
+// Routes (same path, branched on Content-Type):
+//          application/json       -> streamed chat completion (SSE)
+//          multipart/form-data    -> Whisper transcription (field "audio")
 // ---------------------------------------------------------------------------
 
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts'
 
 const GROQ_API_BASE = 'https://api.groq.com/openai/v1'
-const DEFAULT_MODEL = Deno.env.get('AI_MODEL') ?? 'openai/gpt-oss-20b'
+
+/**
+ * Cheapest verified models on this project's Groq account (checked against
+ * GET /openai/v1/models). Client requests may ask for a model, but only these
+ * values are ever forwarded — a typo or a pricey model can never be billed.
+ */
+const ALLOWED_CHAT_MODELS = new Set([
+  'openai/gpt-oss-20b',
+  'openai/gpt-oss-120b',
+])
+const DEFAULT_MODEL = 'openai/gpt-oss-20b'
+const TRANSCRIBE_MODEL = 'whisper-large-v3-turbo'
 
 /** The specialist system prompt behind every response. */
 const SYSTEM_PROMPT = `You are the Inquiry Assistant for Hadfield Early Learning Centre in Australia.
@@ -85,6 +99,14 @@ serve(async (req: Request) => {
     )
   }
 
+  // Multipart body = voice transcription request; JSON body = chat.
+  // (Branching on Content-Type keeps a single deployable route, so there is
+  // no dependence on sub-path routing behaviour.)
+  const contentType = req.headers.get('content-type') ?? ''
+  if (contentType.includes('multipart/form-data')) {
+    return handleTranscribe(req, apiKey)
+  }
+
   let payload: ChatRequest
   try {
     payload = (await req.json()) as ChatRequest
@@ -109,8 +131,12 @@ serve(async (req: Request) => {
 
   const mode = payload.mode === 'json' ? 'json' : 'chat'
 
+  // Allow-list the model so only the cheapest verified models can be billed.
+  const requested = typeof payload.model === 'string' ? payload.model : ''
+  const model = ALLOWED_CHAT_MODELS.has(requested) ? requested : DEFAULT_MODEL
+
   const groqBody = {
-    model: payload.model ?? DEFAULT_MODEL,
+    model,
     messages: [
       {
         role: 'system',
@@ -120,6 +146,10 @@ serve(async (req: Request) => {
     ],
     temperature: clamp(payload.temperature ?? 0.7, 0, 1.5),
     max_tokens: clampInt(payload.max_tokens ?? 1400, 100, 8000),
+    // gpt-oss models are reasoning models; 'low' keeps quality while
+    // spending as few reasoning tokens as possible (cheapest verified value —
+    // Groq accepts low|medium|high).
+    reasoning_effort: 'low',
     stream: payload.stream !== false,
   }
 
@@ -166,6 +196,66 @@ serve(async (req: Request) => {
     },
   })
 })
+
+/**
+ * POST multipart/form-data with an "audio" field (a Blob/File) and an
+ * optional "language" field (e.g. "en").
+ *
+ * Cost control: the audio field is capped at ~25 MB (matches the Whisper
+ * limit), is never stored, and always uses the cheapest Whisper model.
+ */
+async function handleTranscribe(req: Request, apiKey: string): Promise<Response> {
+  let form: FormData
+  try {
+    form = await req.formData()
+  } catch {
+    return json({ error: 'Expected multipart form data with an "audio" file.' }, 400)
+  }
+
+  const audio = form.get('audio')
+  if (!(audio instanceof File)) {
+    return json({ error: 'Missing "audio" file field.' }, 400)
+  }
+
+  if (audio.size > 25 * 1024 * 1024) {
+    return json(
+      { error: 'Audio is too large (max 25 MB). Record a shorter message.' },
+      413,
+    )
+  }
+
+  const language = form.get('language')
+  const out = new FormData()
+  out.append('file', audio, audio.name || 'voice-message.webm')
+  out.append('model', TRANSCRIBE_MODEL)
+  out.append('response_format', 'json')
+  if (typeof language === 'string' && /^[a-z]{2}(-[A-Z]{2})?$/.test(language)) {
+    out.append('language', language)
+  }
+
+  let groqRes: Response
+  try {
+    groqRes = await fetch(`${GROQ_API_BASE}/audio/transcriptions`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}` },
+      body: out,
+    })
+  } catch (err) {
+    return json({ error: `Could not reach Groq: ${(err as Error).message}` }, 502)
+  }
+
+  if (!groqRes.ok) {
+    const detail = await groqRes.text().catch(() => '')
+    return json(
+      { error: `Transcription failed (${groqRes.status}). ${detail.slice(0, 400)}` },
+      502,
+    )
+  }
+
+  const data = await groqRes.json().catch(() => null)
+  const text = String(data?.text ?? '').trim()
+  return json({ text })
+}
 
 function clamp(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min
