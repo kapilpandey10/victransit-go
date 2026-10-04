@@ -18,8 +18,9 @@ describe('useAdminStore', () => {
 
     const kapil = admin.teachers.find(t => t.email === 'info@pandeykapil.com.np')
     expect(kapil).toBeDefined()
-    expect(kapil?.role).toBe('Centre Director')
-    expect(kapil?.centre_name).toBe('Hadfield Early Learning Centre')
+    expect(kapil?.role).toBe('System Administrator')
+    expect(kapil?.centre_name).toBe('Platform Administration')
+    expect(admin.systemStats.totalCentres).toBeGreaterThanOrEqual(1)
 
     const storiesTopic = admin.getTopic('learning-stories')
     expect(storiesTopic).toBeDefined()

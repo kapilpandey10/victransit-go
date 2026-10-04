@@ -339,6 +339,7 @@ export type RepoInstance<T extends BaseRecord> = Repo<T>
 // ---------------------------------------------------------------------------
 export const TABLES = {
   profiles: 'profiles',
+  centres: 'centres',
   projects: 'projects',
   mindmapNodes: 'mindmap_nodes',
   learningStories: 'learning_stories',

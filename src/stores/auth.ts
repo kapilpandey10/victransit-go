@@ -20,8 +20,8 @@ export const useAuthStore = defineStore('auth', () => {
   const userId = computed(() => user.value?.id ?? null)
   const userEmail = computed(() => (user.value?.email || '').toLowerCase().trim())
   const userRole = computed(() => {
-    if (isAdmin.value) return 'Centre Director'
-    return 'Educator'
+    if (isAdmin.value) return 'System Administrator'
+    return profile.value?.role || 'Educator'
   })
 
   /** Scope id — falls back to the demo id so the UI stays usable. */
@@ -36,8 +36,18 @@ export const useAuthStore = defineStore('auth', () => {
   )
 
   const centreName = computed(
-    () => profile.value?.centre_name || 'Hadfield Early Learning Centre',
+    () => (isAdmin.value ? 'Platform Administrator' : (profile.value?.centre_name || 'Hadfield Early Learning Centre')),
   )
+
+  const roomName = computed(
+    () => (isAdmin.value ? 'No Room (Admin Privacy Shield)' : (profile.value?.room || 'All Rooms')),
+  )
+
+  const hasClassroomAccess = computed(() => {
+    // Platform Administrator has ZERO room access for child privacy!
+    if (isAdmin.value) return false
+    return Boolean(isAuthenticated.value && isAuthorized.value)
+  })
 
   const demoMode = computed(() => !isSupabaseConfigured)
 
@@ -115,11 +125,12 @@ export const useAuthStore = defineStore('auth', () => {
     const admin = useAdminStore()
     const norm = email.trim().toLowerCase()
     const teacher = admin.getTeacherByEmail(norm)
+    const isMaster = norm === 'info@pandeykapil.com.np' || norm === 'admin@hadfield.local'
 
-    const name = teacher?.name || (norm === 'info@pandeykapil.com.np' ? 'Kapil Pandey' : norm.split('@')[0])
-    const role = teacher?.role || (norm === 'info@pandeykapil.com.np' ? 'Centre Director' : 'Educator')
-    const room = teacher?.room || 'All Rooms'
-    const centre = teacher?.centre_name || 'Hadfield Early Learning Centre'
+    const name = teacher?.name || (isMaster ? 'Kapil Pandey' : norm.split('@')[0])
+    const role = isMaster ? 'System Administrator' : (teacher?.role || 'Educator')
+    const room = isMaster ? 'No Room (Admin Privacy Shield)' : (teacher?.room || 'All Rooms')
+    const centre = isMaster ? 'Platform Administration' : (teacher?.centre_name || 'Hadfield Early Learning Centre')
 
     user.value = {
       id: teacher?.id || DEMO_USER_ID,
@@ -150,24 +161,28 @@ export const useAuthStore = defineStore('auth', () => {
       .maybeSingle()
 
     const email = (user.value.email || '').toLowerCase().trim()
-    const isDirector = email === ADMIN_EMAIL || email === 'admin@hadfield.local'
-    const assignedRole = isDirector ? 'Centre Director' : 'Educator'
+    const isMaster = email === ADMIN_EMAIL || email === 'admin@hadfield.local'
+    const assignedRole = isMaster ? 'System Administrator' : 'Educator'
 
     const admin = useAdminStore()
     const teacher = admin.getTeacherByEmail(email)
-    const centre = teacher?.centre_name || (data as Profile)?.centre_name || 'Hadfield Early Learning Centre'
+    const centre = isMaster
+      ? 'Platform Administration'
+      : (teacher?.centre_name || (data as Profile)?.centre_name || 'Hadfield Early Learning Centre')
+    const room = isMaster ? 'No Room (Admin Privacy Shield)' : (teacher?.room || 'All Rooms')
 
     profile.value = data
       ? {
           ...(data as Profile),
           role: assignedRole,
           centre_name: centre,
+          room,
         }
       : {
           id: user.value.id,
           full_name: (user.value.user_metadata?.full_name as string) || email.split('@')[0],
           centre_name: centre,
-          room: teacher?.room || 'All Rooms',
+          room,
           role: assignedRole,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
@@ -354,6 +369,8 @@ export const useAuthStore = defineStore('auth', () => {
     userEmail,
     userRole,
     centreName,
+    roomName,
+    hasClassroomAccess,
     scopeId,
     displayName,
     demoMode,

@@ -1,27 +1,32 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { roomTitle, roomTeam } from '@/data/rooms'
 import { useAdminStore } from '@/stores/admin'
 import { useAuthStore } from '@/stores/auth'
 import { useRoomsStore } from '@/stores/rooms'
 import { useUiStore } from '@/stores/ui'
 import SupabaseConnectionCard from '@/components/SupabaseConnectionCard.vue'
 import { isSupabaseConfiguredRef } from '@/services/supabase'
-import type { RoomRecord, TeacherAccess, TeacherAccessStatus, TeacherRole, TopicModuleStatus, TopicStatus } from '@/types'
+import type {
+  CentreRecord,
+  RoomRecord,
+  TeacherAccess,
+  TeacherAccessStatus,
+  TeacherRole,
+  TopicModuleStatus,
+  TopicStatus,
+} from '@/types'
 
 const admin = useAdminStore()
 const auth = useAuthStore()
 const roomsStore = useRoomsStore()
 const ui = useUiStore()
 
-const activeTab = ref<'teachers' | 'rooms' | 'topics' | 'governance' | 'cloud'>('teachers')
+const activeTab = ref<'overview' | 'centres' | 'rooms' | 'teachers' | 'topics' | 'cloud' | 'governance'>('overview')
 
 onMounted(async () => {
   await Promise.all([admin.init(), roomsStore.loadRooms()])
 })
 
-// ---------------------------------------------------------------------------
-// Teacher Search & Filtering
 // ---------------------------------------------------------------------------
 // Teacher Search & Filtering
 // ---------------------------------------------------------------------------
@@ -31,15 +36,24 @@ const filterRoom = ref<string>('all')
 const filterStatus = ref<string>('all')
 
 const ROLES: TeacherRole[] = [
-  'Centre Director',
-  'Educational Leader',
+  'Educator',
   'Early Childhood Teacher',
   'Room Leader',
-  'Educator',
+  'Educational Leader',
+  'Centre Director',
   'Relief Educator',
+  'System Administrator',
 ]
 
-const roomOptions = computed(() => ['All Rooms', ...roomsStore.roomNames])
+// Dynamic room options based on selected centre in teacher form
+const teacherFormRoomOptions = computed(() => {
+  const cName = teacherForm.centre_name || 'Hadfield Early Learning Centre'
+  const names = roomsStore.getRoomNamesForCentre(cName)
+  return ['All Rooms', ...names]
+})
+
+// Global room options for table filtering
+const globalRoomOptions = computed(() => ['All Rooms', ...roomsStore.roomNames])
 
 const filteredTeachers = computed(() => {
   return admin.teachers.filter(t => {
@@ -67,7 +81,7 @@ const filteredTeachers = computed(() => {
 })
 
 // ---------------------------------------------------------------------------
-// Add / Edit Teacher Modal State
+// Add / Edit Teacher Modal State (Responsive with Sticky Footer)
 // ---------------------------------------------------------------------------
 const showTeacherModal = ref(false)
 const editingTeacherId = ref<string | null>(null)
@@ -85,11 +99,11 @@ const teacherForm = reactive({
   notes: '',
 })
 
-function openAddTeacherModal() {
+function openAddTeacherModal(prefilledCentre?: string) {
   editingTeacherId.value = null
   teacherForm.email = ''
   teacherForm.name = ''
-  teacherForm.centre_name = auth.centreName || 'Hadfield Early Learning Centre'
+  teacherForm.centre_name = prefilledCentre || admin.centreGroups[0] || 'Hadfield Early Learning Centre'
   teacherForm.password = 'Educator2026!'
   teacherForm.role = 'Educator'
   teacherForm.room = 'All Rooms'
@@ -176,12 +190,6 @@ async function handleToggleStatus(teacher: TeacherAccess, newStatus: TeacherAcce
   }
 }
 
-function copyInviteLink(email: string) {
-  const url = `${window.location.origin}/login?email=${encodeURIComponent(email)}`
-  navigator.clipboard.writeText(url)
-  ui.showToast(`Login link copied for ${email}`, 'success')
-}
-
 function copyFullCredentials(teacher: TeacherAccess) {
   const portalUrl = `${window.location.origin}/login?email=${encodeURIComponent(teacher.email)}`
   const text = `🌟 Hadfield Early Learning Inquiry Portal Login
@@ -200,19 +208,130 @@ Login Link: ${portalUrl}`
 }
 
 // ---------------------------------------------------------------------------
-// Dynamic Room Management State & Actions
+// Centre / School Group Management State & Actions
+// ---------------------------------------------------------------------------
+const showCentreModal = ref(false)
+const editingCentreId = ref<string | null>(null)
+const centreFormSubmitting = ref(false)
+
+const centreForm = reactive({
+  name: '',
+  code: '',
+  address: '',
+  phone: '',
+  email: '',
+  notes: '',
+  initial_rooms: 'Nursery, Toddlers, Kindergarten',
+})
+
+function openAddCentreModal() {
+  editingCentreId.value = null
+  centreForm.name = ''
+  centreForm.code = ''
+  centreForm.address = ''
+  centreForm.phone = ''
+  centreForm.email = ''
+  centreForm.notes = ''
+  centreForm.initial_rooms = 'Nursery, Toddlers, Kindergarten'
+  showCentreModal.value = true
+}
+
+function openEditCentreModal(centre: CentreRecord | { id: string; name: string; code?: string; address?: string; phone?: string; email?: string; notes?: string }) {
+  editingCentreId.value = centre.id
+  centreForm.name = centre.name
+  centreForm.code = centre.code || ''
+  centreForm.address = centre.address || ''
+  centreForm.phone = centre.phone || ''
+  centreForm.email = centre.email || ''
+  centreForm.notes = centre.notes || ''
+  centreForm.initial_rooms = ''
+  showCentreModal.value = true
+}
+
+async function handleSaveCentre() {
+  if (!centreForm.name.trim()) {
+    ui.showToast('Please enter a centre name.', 'error')
+    return
+  }
+  centreFormSubmitting.value = true
+  try {
+    if (editingCentreId.value) {
+      await admin.updateCentre(editingCentreId.value, {
+        name: centreForm.name,
+        code: centreForm.code,
+        address: centreForm.address,
+        phone: centreForm.phone,
+        email: centreForm.email,
+        notes: centreForm.notes,
+      })
+      ui.showToast(`Centre "${centreForm.name}" updated.`, 'success')
+    } else {
+      const created = await admin.addCentre({
+        name: centreForm.name,
+        code: centreForm.code,
+        address: centreForm.address,
+        phone: centreForm.phone,
+        email: centreForm.email,
+        notes: centreForm.notes,
+      })
+      // If initial rooms specified, create them for this new Centre
+      if (centreForm.initial_rooms.trim()) {
+        const roomsToCreate = centreForm.initial_rooms
+          .split(',')
+          .map(r => r.trim())
+          .filter(Boolean)
+        for (const rm of roomsToCreate) {
+          try {
+            await roomsStore.addRoom(rm, created.name, `${rm} learning room at ${created.name}`)
+          } catch {
+            /* ignore individual duplicate */
+          }
+        }
+      }
+      ui.showToast(`New Centre "${created.name}" created with rooms!`, 'success')
+    }
+    showCentreModal.value = false
+  } catch (err) {
+    ui.showToast((err as Error).message, 'error')
+  } finally {
+    centreFormSubmitting.value = false
+  }
+}
+
+async function handleDeleteCentre(centre: { id: string; name: string }) {
+  if (!confirm(`Are you sure you want to delete Centre "${centre.name}"? Existing rooms and educators will need reassignment.`)) {
+    return
+  }
+  try {
+    await admin.deleteCentre(centre.id)
+    ui.showToast(`Centre "${centre.name}" removed.`, 'success')
+  } catch (err) {
+    ui.showToast((err as Error).message, 'error')
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Dynamic Room Management State & Actions (Scoped per Centre)
 // ---------------------------------------------------------------------------
 const showRoomModal = ref(false)
 const editingRoomId = ref<string | null>(null)
 const roomFormSubmitting = ref(false)
+const filterRoomCentre = ref<string>('all')
 
 const roomForm = reactive({
+  centre_name: 'Hadfield Early Learning Centre',
   name: '',
   description: '',
 })
 
-function openAddRoomModal() {
+const filteredRooms = computed(() => {
+  if (filterRoomCentre.value === 'all') return roomsStore.rooms
+  return roomsStore.getRoomsForCentre(filterRoomCentre.value)
+})
+
+function openAddRoomModal(prefilledCentre?: string) {
   editingRoomId.value = null
+  roomForm.centre_name = prefilledCentre || admin.centreGroups[0] || 'Hadfield Early Learning Centre'
   roomForm.name = ''
   roomForm.description = ''
   showRoomModal.value = true
@@ -220,6 +339,7 @@ function openAddRoomModal() {
 
 function openEditRoomModal(room: RoomRecord) {
   editingRoomId.value = room.id
+  roomForm.centre_name = room.centre_name || 'Hadfield Early Learning Centre'
   roomForm.name = room.name
   roomForm.description = room.description || ''
   showRoomModal.value = true
@@ -234,13 +354,14 @@ async function handleSaveRoom() {
   try {
     if (editingRoomId.value) {
       await roomsStore.updateRoom(editingRoomId.value, {
+        centre_name: roomForm.centre_name,
         name: roomForm.name,
         description: roomForm.description,
       })
       ui.showToast(`Room updated to "${roomForm.name}".`, 'success')
     } else {
-      await roomsStore.addRoom(roomForm.name, roomForm.description)
-      ui.showToast(`Room "${roomForm.name}" created.`, 'success')
+      await roomsStore.addRoom(roomForm.name, roomForm.centre_name, roomForm.description)
+      ui.showToast(`Room "${roomForm.name}" created for ${roomForm.centre_name}.`, 'success')
     }
     showRoomModal.value = false
   } catch (err) {
@@ -251,10 +372,6 @@ async function handleSaveRoom() {
 }
 
 async function handleDeleteRoom(room: RoomRecord) {
-  if (roomsStore.rooms.length <= 1) {
-    ui.showToast('You must keep at least one room in the service.', 'error')
-    return
-  }
   if (!confirm(`Are you sure you want to delete room "${room.name}"?`)) {
     return
   }
@@ -319,7 +436,7 @@ async function handleSaveTopicNotes(topic: TopicModuleStatus) {
         <div>
           <div class="flex flex-wrap items-center gap-2">
             <span class="rounded-full bg-brand-500/20 text-brand-300 px-3 py-1 text-xs font-bold uppercase tracking-wider border border-brand-500/30">
-              Service Leadership & Administration
+              Super Admin Command Center
             </span>
             <span class="rounded-full bg-emerald-500/20 text-emerald-300 px-2.5 py-0.5 text-xs font-semibold">
               ACECQA QA7 Governance
@@ -339,29 +456,36 @@ async function handleSaveTopicNotes(topic: TopicModuleStatus) {
             </button>
           </div>
           <h1 class="mt-2 font-display text-2xl sm:text-3xl font-black tracking-tight">
-            Hadfield ELC — Admin Dashboard
+            Multi-Centre Governance & Platform Administration
           </h1>
           <p class="mt-1 text-sm text-slate-300 max-w-2xl leading-relaxed">
-            Logged in as <span class="text-white font-bold">{{ auth.displayName }}</span>. Authorize teacher login emails, configure early learning rooms, and set pedagogical modules to
-            <span class="text-amber-300 font-bold underline">Under Development</span> with live guidance notes.
+            Logged in as <span class="text-white font-bold">{{ auth.displayName }}</span> (<span class="font-mono text-xs text-brand-300">info@pandeykapil.com.np</span>). Manage multiple Early Learning Centres, learning rooms, educator accounts, and system governance.
           </p>
         </div>
 
         <div class="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            class="btn bg-brand-600 hover:bg-brand-500 text-white font-bold shadow-soft flex items-center gap-1.5"
-            @click="openAddTeacherModal"
+            class="btn bg-brand-600 hover:bg-brand-500 text-white font-bold shadow-soft flex items-center gap-1.5 text-xs sm:text-sm"
+            @click="openAddCentreModal"
           >
-            <span>➕</span>
-            <span>Grant Teacher Email</span>
+            <span>🏫</span>
+            <span>New Centre</span>
           </button>
           <button
             type="button"
-            class="btn bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold flex items-center gap-1.5"
-            @click="openAddRoomModal"
+            class="btn bg-emerald-600 hover:bg-emerald-500 text-white font-bold shadow-soft flex items-center gap-1.5 text-xs sm:text-sm"
+            @click="openAddTeacherModal()"
           >
-            <span>🏫</span>
+            <span>➕</span>
+            <span>Add Educator</span>
+          </button>
+          <button
+            type="button"
+            class="btn bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold flex items-center gap-1.5 text-xs sm:text-sm"
+            @click="openAddRoomModal()"
+          >
+            <span>🚪</span>
             <span>Add Room</span>
           </button>
         </div>
@@ -369,31 +493,62 @@ async function handleSaveTopicNotes(topic: TopicModuleStatus) {
 
       <!-- Quick Metrics Grid -->
       <div class="mt-6 grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div class="rounded-2xl bg-white/5 border border-white/10 p-3 sm:p-4">
-          <p class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Authorized Teachers</p>
-          <p class="mt-1 text-2xl font-black text-white">{{ admin.teachers.length }}</p>
-          <p class="text-xs text-slate-400">Master-registered staff</p>
+        <div
+          class="rounded-2xl bg-white/5 border border-white/10 p-3 sm:p-4 cursor-pointer hover:bg-white/10 transition"
+          @click="activeTab = 'centres'"
+        >
+          <p class="text-[11px] font-bold uppercase tracking-wider text-brand-400">Centres / Schools</p>
+          <p class="mt-1 text-2xl font-black text-brand-300">{{ admin.systemStats.totalCentres }}</p>
+          <p class="text-xs text-slate-400">Independent groups</p>
         </div>
 
-        <div class="rounded-2xl bg-white/5 border border-white/10 p-3 sm:p-4">
-          <p class="text-[11px] font-bold uppercase tracking-wider text-brand-400">Centre Groups</p>
-          <p class="mt-1 text-2xl font-black text-brand-300">{{ admin.centreGroups.length }}</p>
-          <p class="text-xs text-slate-400">Isolated centre scopes</p>
-        </div>
-
-        <div class="rounded-2xl bg-white/5 border border-white/10 p-3 sm:p-4">
+        <div
+          class="rounded-2xl bg-white/5 border border-white/10 p-3 sm:p-4 cursor-pointer hover:bg-white/10 transition"
+          @click="activeTab = 'rooms'"
+        >
           <p class="text-[11px] font-bold uppercase tracking-wider text-emerald-400">Learning Rooms</p>
-          <p class="mt-1 text-2xl font-black text-emerald-300">{{ roomsStore.rooms.length }}</p>
-          <p class="text-xs text-slate-400">Active rooms</p>
+          <p class="mt-1 text-2xl font-black text-emerald-300">{{ admin.systemStats.totalRooms }}</p>
+          <p class="text-xs text-slate-400">Across all centres</p>
+        </div>
+
+        <div
+          class="rounded-2xl bg-white/5 border border-white/10 p-3 sm:p-4 cursor-pointer hover:bg-white/10 transition"
+          @click="activeTab = 'teachers'"
+        >
+          <p class="text-[11px] font-bold uppercase tracking-wider text-sky-400">Registered Educators</p>
+          <p class="mt-1 text-2xl font-black text-white">{{ admin.systemStats.totalEducators }}</p>
+          <p class="text-xs text-slate-400">{{ admin.systemStats.activeEducators }} active staff</p>
         </div>
 
         <div class="rounded-2xl bg-white/5 border border-white/10 p-3 sm:p-4">
-          <p class="text-[11px] font-bold uppercase tracking-wider text-amber-400">Under Development</p>
-          <p class="mt-1 text-2xl font-black text-amber-300">{{ admin.underDevTopics.length }}</p>
-          <p class="text-xs text-slate-400">Modules marked WIP</p>
+          <p class="text-[11px] font-bold uppercase tracking-wider text-emerald-400">Child Privacy Shield</p>
+          <p class="mt-1 text-lg font-black text-emerald-300 flex items-center gap-1.5">
+            <span>🔒</span>
+            <span>100% Protected</span>
+          </p>
+          <p class="text-[10px] text-slate-400">Admin zero-data visibility</p>
         </div>
       </div>
     </header>
+
+    <!-- Child Privacy Notice Banner -->
+    <div class="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/25 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-xs">
+      <div class="flex items-start gap-2.5">
+        <span class="text-xl shrink-0">🛡️</span>
+        <div class="space-y-0.5">
+          <p class="font-bold text-slate-900 dark:text-slate-100 text-sm flex items-center gap-2">
+            <span>Child & Classroom Privacy Architecture</span>
+            <span class="rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 text-[10px] px-2 py-0.5 font-bold uppercase">
+              Zero Child Data Leakage
+            </span>
+          </p>
+          <p class="text-slate-600 dark:text-slate-300 leading-relaxed">
+            As Platform Administrator, your role is purely administrative: managing Centres, Rooms, and Educator login credentials.
+            You have <strong>zero access to classroom observations, learning stories, photos, or child notes</strong>, protecting educator-child confidentiality across every school.
+          </p>
+        </div>
+      </div>
+    </div>
 
     <!-- Navigation Tabs -->
     <div class="flex flex-wrap items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2">
@@ -401,14 +556,28 @@ async function handleSaveTopicNotes(topic: TopicModuleStatus) {
         type="button"
         class="flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm transition"
         :class="
-          activeTab === 'teachers'
+          activeTab === 'overview'
             ? 'bg-brand-600 text-white shadow-sm'
             : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
         "
-        @click="activeTab = 'teachers'"
+        @click="activeTab = 'overview'"
       >
-        <span>👥</span>
-        <span>Teacher Access Control ({{ admin.teachers.length }})</span>
+        <span>📊</span>
+        <span>Overview & Stats</span>
+      </button>
+
+      <button
+        type="button"
+        class="flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm transition"
+        :class="
+          activeTab === 'centres'
+            ? 'bg-brand-600 text-white shadow-sm'
+            : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+        "
+        @click="activeTab = 'centres'"
+      >
+        <span>🏫</span>
+        <span>Centres & Schools ({{ admin.systemStats.totalCentres }})</span>
       </button>
 
       <button
@@ -421,8 +590,22 @@ async function handleSaveTopicNotes(topic: TopicModuleStatus) {
         "
         @click="activeTab = 'rooms'"
       >
-        <span>🏫</span>
-        <span>Rooms ({{ roomsStore.rooms.length }})</span>
+        <span>🚪</span>
+        <span>Rooms ({{ admin.systemStats.totalRooms }})</span>
+      </button>
+
+      <button
+        type="button"
+        class="flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm transition"
+        :class="
+          activeTab === 'teachers'
+            ? 'bg-brand-600 text-white shadow-sm'
+            : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+        "
+        @click="activeTab = 'teachers'"
+      >
+        <span>👩‍🏫</span>
+        <span>Educators ({{ admin.systemStats.totalEducators }})</span>
       </button>
 
       <button
@@ -436,7 +619,7 @@ async function handleSaveTopicNotes(topic: TopicModuleStatus) {
         @click="activeTab = 'topics'"
       >
         <span>🚧</span>
-        <span>Module Status ({{ admin.topicStatuses.length }})</span>
+        <span>Curriculum Modules</span>
         <span
           v-if="admin.underDevTopics.length > 0"
           class="rounded-full bg-amber-500 text-slate-950 px-2 py-0.5 text-[10px] font-extrabold"
@@ -456,13 +639,7 @@ async function handleSaveTopicNotes(topic: TopicModuleStatus) {
         @click="activeTab = 'cloud'"
       >
         <span>☁️</span>
-        <span>Supabase Cloud & Sync</span>
-        <span
-          class="rounded-full px-2 py-0.5 text-[10px] font-extrabold"
-          :class="isSupabaseConfiguredRef ? 'bg-emerald-500/20 text-emerald-400 dark:text-emerald-300' : 'bg-amber-500/20 text-amber-500 dark:text-amber-300'"
-        >
-          {{ isSupabaseConfiguredRef ? 'Connected' : 'Offline' }}
-        </span>
+        <span>Supabase Sync</span>
       </button>
 
       <button
@@ -481,25 +658,317 @@ async function handleSaveTopicNotes(topic: TopicModuleStatus) {
     </div>
 
     <!-- ===================================================================== -->
-    <!-- TAB 1: TEACHER ACCESS CONTROL -->
+    <!-- TAB 0: OVERVIEW & STATS SNAPSHOT -->
     <!-- ===================================================================== -->
-    <section v-if="activeTab === 'teachers'" class="space-y-4">
-      <!-- Master Policy Banner -->
-      <div class="p-4 rounded-2xl bg-brand-500/10 border border-brand-500/25 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-xs">
-        <div class="flex items-start gap-2.5">
-          <span class="text-xl shrink-0">🛡️</span>
-          <div class="space-y-0.5">
-            <p class="font-bold text-slate-900 dark:text-slate-100 text-sm">
-              Master Access & Centre Group Isolation
+    <section v-if="activeTab === 'overview'" class="space-y-6">
+      <div class="flex items-center justify-between">
+        <div>
+          <h2 class="text-lg font-black text-slate-900 dark:text-slate-100">
+            Multi-Centre Operational Status
+          </h2>
+          <p class="text-xs text-slate-500">
+            Real-time status of all early learning centres, rooms, and registered educators.
+          </p>
+        </div>
+        <button
+          type="button"
+          class="btn-primary text-xs flex items-center gap-1.5"
+          @click="openAddCentreModal"
+        >
+          <span>➕</span>
+          <span>Register New Centre</span>
+        </button>
+      </div>
+
+      <!-- Centre Cards Grid with Detailed Breakdown -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div
+          v-for="stat in admin.centreStats"
+          :key="stat.name"
+          class="card p-5 space-y-4 hover:shadow-soft transition border border-slate-200 dark:border-slate-800"
+        >
+          <div class="flex items-start justify-between gap-3">
+            <div class="space-y-1">
+              <div class="flex items-center gap-2">
+                <span class="text-2xl">🏫</span>
+                <h3 class="font-display font-extrabold text-base text-slate-900 dark:text-slate-100">
+                  {{ stat.name }}
+                </h3>
+              </div>
+              <p class="text-xs text-slate-500">
+                {{ stat.address || 'Australian Early Learning Centre' }}
+              </p>
+            </div>
+            <span
+              class="rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-wider"
+              :class="stat.is_active ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' : 'bg-slate-200 text-slate-600'"
+            >
+              {{ stat.is_active ? 'Active' : 'Archived' }}
+            </span>
+          </div>
+
+          <!-- Quick Stats Pills -->
+          <div class="grid grid-cols-2 gap-2 text-xs">
+            <div class="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800">
+              <p class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Learning Rooms</p>
+              <p class="text-lg font-black text-brand-600 dark:text-brand-400">{{ stat.roomCount }}</p>
+            </div>
+            <div class="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800">
+              <p class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Educators</p>
+              <p class="text-lg font-black text-emerald-600 dark:text-emerald-400">{{ stat.educatorCount }}</p>
+            </div>
+          </div>
+
+          <!-- Rooms in this Centre -->
+          <div class="space-y-2">
+            <p class="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center justify-between">
+              <span>Rooms & Assigned Staff</span>
+              <button
+                type="button"
+                class="text-[11px] font-bold text-brand-600 hover:underline"
+                @click="openAddRoomModal(stat.name)"
+              >
+                + Add Room
+              </button>
             </p>
-            <p class="text-slate-600 dark:text-slate-300 leading-relaxed">
-              Public self-signup is disabled. Only Master Director <strong class="text-brand-600 dark:text-brand-400">Kapil Pandey (info@pandeykapil.com.np)</strong> can register educators into a Centre Group.
-              Educators in each group can only view documentation within their assigned Centre. Within their group, educators can edit and compile together with AI, while deletions are strictly protected.
+            <div v-if="stat.rooms.length > 0" class="flex flex-wrap gap-1.5">
+              <div
+                v-for="rm in stat.rooms"
+                :key="rm.id"
+                class="rounded-lg bg-slate-100 dark:bg-slate-800 px-2.5 py-1 text-xs font-semibold flex items-center gap-1.5"
+              >
+                <span>🚪 {{ rm.name }}</span>
+                <span class="rounded bg-brand-500/20 text-brand-700 dark:text-brand-300 text-[10px] px-1 font-bold">
+                  {{ rm.educators?.length || 0 }} staff
+                </span>
+              </div>
+            </div>
+            <p v-else class="text-xs text-slate-400 italic">
+              No rooms created yet. Click "+ Add Room" to create one.
             </p>
+          </div>
+
+          <!-- Card Actions -->
+          <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+            <button
+              type="button"
+              class="btn-secondary text-xs py-1.5 px-3"
+              @click="openAddTeacherModal(stat.name)"
+            >
+              ➕ Add Educator
+            </button>
+            <button
+              type="button"
+              class="btn-ghost text-xs py-1.5 px-3"
+              @click="openAddRoomModal(stat.name)"
+            >
+              🚪 Add Room
+            </button>
           </div>
         </div>
       </div>
+    </section>
 
+    <!-- ===================================================================== -->
+    <!-- TAB 1: CENTRES & SCHOOLS MANAGEMENT -->
+    <!-- ===================================================================== -->
+    <section v-if="activeTab === 'centres'" class="space-y-4">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h2 class="text-lg font-black text-slate-900 dark:text-slate-100">
+            Registered Early Learning Centres & Schools
+          </h2>
+          <p class="text-xs text-slate-500">
+            Each centre maintains isolated child records, learning stories, and room-specific inquiry cycles.
+          </p>
+        </div>
+        <button
+          type="button"
+          class="btn-primary text-xs flex items-center gap-1.5 self-start sm:self-auto"
+          @click="openAddCentreModal"
+        >
+          <span>➕</span>
+          <span>Register New Centre</span>
+        </button>
+      </div>
+
+      <!-- Centre List Table / Cards -->
+      <div class="card overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-sm">
+            <thead class="bg-slate-50 dark:bg-slate-800/80 text-[11px] font-extrabold uppercase tracking-wider text-slate-500 border-b border-slate-200 dark:border-slate-800">
+              <tr>
+                <th class="py-3 px-4">Centre / School Name</th>
+                <th class="py-3 px-4">Code / Address</th>
+                <th class="py-3 px-4">Rooms</th>
+                <th class="py-3 px-4">Educators</th>
+                <th class="py-3 px-4">Status</th>
+                <th class="py-3 px-4 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
+              <tr
+                v-for="centre in admin.centreStats"
+                :key="centre.name"
+                class="hover:bg-slate-50/50 dark:hover:bg-slate-800/40 transition"
+              >
+                <td class="py-3.5 px-4 font-bold text-slate-900 dark:text-slate-100">
+                  <div class="flex items-center gap-2">
+                    <span>🏫</span>
+                    <span>{{ centre.name }}</span>
+                  </div>
+                </td>
+                <td class="py-3.5 px-4 text-xs text-slate-500">
+                  {{ centre.address || '—' }}
+                </td>
+                <td class="py-3.5 px-4">
+                  <span class="rounded bg-brand-100 text-brand-800 dark:bg-brand-950 dark:text-brand-300 px-2 py-0.5 text-xs font-bold">
+                    {{ centre.roomCount }} rooms
+                  </span>
+                </td>
+                <td class="py-3.5 px-4">
+                  <span class="rounded bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 px-2 py-0.5 text-xs font-bold">
+                    {{ centre.educatorCount }} educators
+                  </span>
+                </td>
+                <td class="py-3.5 px-4">
+                  <span class="rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                    Active
+                  </span>
+                </td>
+                <td class="py-3.5 px-4 text-right">
+                  <div class="flex items-center justify-end gap-1.5">
+                    <button
+                      type="button"
+                      class="btn-ghost p-1.5 text-xs font-bold text-brand-600"
+                      title="Add Room to this Centre"
+                      @click="openAddRoomModal(centre.name)"
+                    >
+                      + Room
+                    </button>
+                    <button
+                      type="button"
+                      class="btn-ghost p-1.5 text-xs font-bold text-emerald-600"
+                      title="Add Educator to this Centre"
+                      @click="openAddTeacherModal(centre.name)"
+                    >
+                      + Staff
+                    </button>
+                    <button
+                      type="button"
+                      class="btn-ghost p-1.5 text-xs"
+                      title="Edit Centre Details"
+                      @click="openEditCentreModal(centre)"
+                    >
+                      ✏️
+                    </button>
+                    <button
+                      type="button"
+                      class="btn-ghost p-1.5 text-xs text-rose-600 hover:bg-rose-50"
+                      title="Delete Centre"
+                      @click="handleDeleteCentre(centre)"
+                    >
+                      🗑️
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================================================================== -->
+    <!-- TAB 2: ROOM MANAGEMENT (PER CENTRE) -->
+    <!-- ===================================================================== -->
+    <section v-if="activeTab === 'rooms'" class="space-y-4">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h2 class="text-lg font-black text-slate-900 dark:text-slate-100">
+            Learning Rooms & Age Cohorts
+          </h2>
+          <p class="text-xs text-slate-500">
+            Rooms are assigned to a Centre and group children by inquiry level and age cohort.
+          </p>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+          <!-- Filter by Centre -->
+          <select v-model="filterRoomCentre" class="select text-xs font-semibold">
+            <option value="all">All Centres ({{ roomsStore.rooms.length }} rooms)</option>
+            <option v-for="c in admin.centreGroups" :key="c" :value="c">
+              🏫 {{ c }}
+            </option>
+          </select>
+
+          <button
+            type="button"
+            class="btn-primary text-xs flex items-center gap-1.5"
+            @click="openAddRoomModal(filterRoomCentre !== 'all' ? filterRoomCentre : undefined)"
+          >
+            <span>➕</span>
+            <span>Add Room</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Rooms Grid -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div
+          v-for="room in filteredRooms"
+          :key="room.id"
+          class="card p-5 space-y-3 border border-slate-200 dark:border-slate-800 hover:shadow-soft transition"
+        >
+          <div class="flex items-start justify-between gap-2">
+            <div class="space-y-0.5">
+              <span class="rounded bg-brand-100 text-brand-800 dark:bg-brand-950 dark:text-brand-300 px-2 py-0.5 text-[10px] font-bold uppercase">
+                {{ room.centre_name || 'Hadfield Early Learning Centre' }}
+              </span>
+              <h3 class="font-display font-extrabold text-base text-slate-900 dark:text-slate-100 pt-1">
+                {{ room.name }}
+              </h3>
+              <p class="text-xs text-slate-500">
+                {{ room.description || 'Active early learning environment' }}
+              </p>
+            </div>
+
+            <div class="flex items-center gap-1">
+              <button
+                type="button"
+                class="btn-ghost p-1.5 text-xs"
+                title="Edit room"
+                @click="openEditRoomModal(room)"
+              >
+                ✏️
+              </button>
+              <button
+                type="button"
+                class="btn-ghost p-1.5 text-xs text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50"
+                title="Delete room"
+                @click="handleDeleteRoom(room)"
+              >
+                🗑️
+              </button>
+            </div>
+          </div>
+
+          <div class="rounded-xl bg-slate-50 dark:bg-slate-800/60 p-3 space-y-1.5 text-xs">
+            <div class="flex items-center justify-between">
+              <span class="text-slate-500 text-[11px]">Assigned Staff:</span>
+              <span class="rounded bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 px-1.5 py-0.2 text-[10px] font-bold">
+                {{ admin.teachers.filter(t => t.room === room.name || t.room === 'All Rooms').length }} educators
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================================================================== -->
+    <!-- TAB 3: TEACHER ACCESS CONTROL -->
+    <!-- ===================================================================== -->
+    <section v-if="activeTab === 'teachers'" class="space-y-4">
       <!-- Search and filter toolbar -->
       <div class="card p-4 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
         <div class="flex-1 relative">
@@ -523,7 +992,7 @@ async function handleSaveTopicNotes(topic: TopicModuleStatus) {
 
           <select v-model="filterRoom" class="select text-xs">
             <option value="all">All Rooms</option>
-            <option v-for="room in roomOptions" :key="room" :value="room">{{ room }}</option>
+            <option v-for="room in globalRoomOptions" :key="room" :value="room">{{ room }}</option>
           </select>
 
           <select v-model="filterStatus" class="select text-xs">
@@ -536,10 +1005,10 @@ async function handleSaveTopicNotes(topic: TopicModuleStatus) {
           <button
             type="button"
             class="btn-primary text-xs flex items-center gap-1.5"
-            @click="openAddTeacherModal"
+            @click="openAddTeacherModal()"
           >
             <span>➕</span>
-            <span>Add Educator to Group</span>
+            <span>Add Educator</span>
           </button>
         </div>
       </div>
@@ -548,207 +1017,102 @@ async function handleSaveTopicNotes(topic: TopicModuleStatus) {
       <div class="card overflow-hidden">
         <div class="overflow-x-auto">
           <table class="w-full text-left text-sm">
-            <thead class="bg-slate-50 dark:bg-slate-900/60 border-b border-slate-200 dark:border-slate-800 text-[11px] uppercase tracking-wider text-slate-500 font-bold">
+            <thead class="bg-slate-50 dark:bg-slate-800/80 text-[11px] font-extrabold uppercase tracking-wider text-slate-500 border-b border-slate-200 dark:border-slate-800">
               <tr>
-                <th class="py-3.5 px-4">Educator / Email</th>
-                <th class="py-3.5 px-4">Centre Group</th>
-                <th class="py-3.5 px-4">Role</th>
-                <th class="py-3.5 px-4">Room</th>
-                <th class="py-3.5 px-4">Password</th>
-                <th class="py-3.5 px-4">Status</th>
-                <th class="py-3.5 px-4">Admin Privileges</th>
-                <th class="py-3.5 px-4 text-right">Actions</th>
+                <th class="py-3 px-4">Educator / Contact</th>
+                <th class="py-3 px-4">Centre Group</th>
+                <th class="py-3 px-4">Assigned Room</th>
+                <th class="py-3 px-4">Role</th>
+                <th class="py-3 px-4">Initial Password</th>
+                <th class="py-3 px-4">Status</th>
+                <th class="py-3 px-4 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-slate-100 dark:divide-slate-800/80">
+            <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
               <tr
-                v-for="t in filteredTeachers"
-                :key="t.id"
+                v-for="teacher in filteredTeachers"
+                :key="teacher.id"
                 class="hover:bg-slate-50/50 dark:hover:bg-slate-800/40 transition"
               >
-                <!-- Name & Email -->
                 <td class="py-3.5 px-4">
                   <div class="flex items-center gap-3">
-                    <div
-                      class="grid h-10 w-10 shrink-0 place-items-center rounded-xl font-bold text-white shadow-soft"
-                      :class="
-                        t.role === 'Centre Director' || t.is_admin
-                          ? 'bg-rose-600'
-                          : t.role === 'Educational Leader'
-                          ? 'bg-brand-600'
-                          : t.role === 'Early Childhood Teacher'
-                          ? 'bg-indigo-600'
-                          : 'bg-emerald-600'
-                      "
-                    >
-                      {{ t.name.charAt(0).toUpperCase() }}
+                    <div class="h-9 w-9 rounded-full bg-brand-600/10 text-brand-700 dark:text-brand-300 font-bold flex items-center justify-center text-sm shrink-0">
+                      {{ teacher.name ? teacher.name.charAt(0).toUpperCase() : '?' }}
                     </div>
-                    <div class="min-w-0">
-                      <div class="flex items-center gap-1.5">
-                        <p class="font-bold text-slate-900 dark:text-slate-100 truncate">
-                          {{ t.name }}
-                        </p>
-                        <span
-                          v-if="t.is_admin || t.role === 'Centre Director'"
-                          class="rounded bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300 text-[9px] font-black uppercase px-1 py-0.2"
-                        >
-                          Admin
-                        </span>
-                      </div>
-                      <div class="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
-                        <span class="truncate">{{ t.email }}</span>
-                        <button
-                          type="button"
-                          class="hover:text-brand-600 dark:hover:text-brand-400"
-                          title="Copy login link"
-                          @click="copyInviteLink(t.email)"
-                        >
-                          📋
-                        </button>
-                      </div>
+                    <div>
+                      <p class="font-bold text-slate-900 dark:text-slate-100">{{ teacher.name }}</p>
+                      <p class="text-xs text-slate-500 font-mono">{{ teacher.email }}</p>
                     </div>
                   </div>
                 </td>
-
-                <!-- Centre Group -->
-                <td class="py-3.5 px-4 whitespace-nowrap">
-                  <span class="inline-flex items-center gap-1 rounded-lg bg-brand-50 dark:bg-brand-950/60 border border-brand-200 dark:border-brand-800 text-brand-700 dark:text-brand-300 px-2.5 py-1 text-xs font-bold">
-                    <span>🏢</span>
-                    <span>{{ t.centre_name || 'Hadfield Early Learning Centre' }}</span>
+                <td class="py-3.5 px-4 font-semibold text-xs text-slate-700 dark:text-slate-300">
+                  <span class="rounded bg-brand-50 text-brand-800 dark:bg-brand-950 dark:text-brand-300 px-2 py-0.5">
+                    {{ teacher.centre_name || 'Hadfield Early Learning Centre' }}
                   </span>
                 </td>
-
-                <!-- Role -->
-                <td class="py-3.5 px-4 whitespace-nowrap">
+                <td class="py-3.5 px-4 font-semibold text-xs text-slate-700 dark:text-slate-300">
+                  {{ teacher.room }}
+                </td>
+                <td class="py-3.5 px-4">
                   <span
-                    class="rounded-lg px-2.5 py-1 text-xs font-bold"
+                    class="rounded-full px-2.5 py-0.5 text-xs font-bold"
                     :class="
-                      t.role === 'Centre Director'
-                        ? 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300'
-                        : t.role === 'Educational Leader'
-                        ? 'bg-brand-100 text-brand-800 dark:bg-brand-950/60 dark:text-brand-300'
-                        : t.role === 'Early Childhood Teacher'
-                        ? 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300'
-                        : 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300'
+                      teacher.is_admin || teacher.role === 'System Administrator'
+                        ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                        : 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-200'
                     "
                   >
-                    {{ t.role }}
+                    {{ teacher.role }}
                   </span>
                 </td>
-
-                <!-- Room Assignment -->
-                <td class="py-3.5 px-4 whitespace-nowrap">
-                  <span class="rounded-md bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 px-2 py-0.5 text-xs font-semibold">
-                    {{ t.room }}
-                  </span>
+                <td class="py-3.5 px-4 font-mono text-xs text-slate-600 dark:text-slate-400">
+                  {{ teacher.password || '—' }}
                 </td>
-
-                <!-- Password -->
-                <td class="py-3.5 px-4 whitespace-nowrap font-mono text-xs">
-                  <span class="px-2 py-1 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
-                    {{ t.password || 'Educator2026!' }}
-                  </span>
-                </td>
-
-                <!-- Status -->
-                <td class="py-3.5 px-4 whitespace-nowrap">
-                  <div class="flex items-center gap-1.5">
-                    <span
-                      class="h-2 w-2 rounded-full"
-                      :class="
-                        t.status === 'active'
-                          ? 'bg-emerald-500 ring-2 ring-emerald-200'
-                          : t.status === 'invited'
-                          ? 'bg-amber-500 ring-2 ring-amber-200'
-                          : 'bg-slate-400'
-                      "
-                    />
-                    <span
-                      class="text-xs font-bold uppercase tracking-wider"
-                      :class="
-                        t.status === 'active'
-                          ? 'text-emerald-700 dark:text-emerald-400'
-                          : t.status === 'invited'
-                          ? 'text-amber-700 dark:text-amber-400'
-                          : 'text-slate-500'
-                      "
-                    >
-                      {{ t.status }}
-                    </span>
-                  </div>
-                </td>
-
-                <!-- Admin Status -->
-                <td class="py-3.5 px-4 whitespace-nowrap">
-                  <span
-                    v-if="t.is_admin || t.role === 'Centre Director'"
-                    class="inline-flex items-center gap-1 text-xs font-bold text-rose-600 dark:text-rose-400"
+                <td class="py-3.5 px-4">
+                  <button
+                    type="button"
+                    class="rounded-full px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider transition hover:opacity-80 cursor-pointer"
+                    :class="
+                      teacher.status === 'active'
+                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                        : teacher.status === 'invited'
+                        ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                        : 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                    "
+                    title="Click to toggle active / suspended status"
+                    @click="handleToggleStatus(teacher, teacher.status === 'active' ? 'suspended' : 'active')"
                   >
-                    <span>🛡️</span>
-                    <span>Admin Access</span>
-                  </span>
-                  <span v-else class="text-xs text-slate-400">
-                    Educator Access
-                  </span>
+                    {{ teacher.status }}
+                  </button>
                 </td>
-
-                <!-- Actions -->
-                <td class="py-3.5 px-4 text-right whitespace-nowrap">
-                  <div class="flex items-center justify-end gap-1">
-                    <button
-                      v-if="t.status !== 'active'"
-                      type="button"
-                      class="btn-ghost p-1.5 text-xs text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/50"
-                      title="Activate educator"
-                      @click="handleToggleStatus(t, 'active')"
-                    >
-                      ✅ Activate
-                    </button>
-                    <button
-                      v-if="t.status === 'active'"
-                      type="button"
-                      class="btn-ghost p-1.5 text-xs text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
-                      title="Suspend access"
-                      @click="handleToggleStatus(t, 'suspended')"
-                    >
-                      ⏸️ Suspend
-                    </button>
-
+                <td class="py-3.5 px-4 text-right">
+                  <div class="flex items-center justify-end gap-1.5">
                     <button
                       type="button"
-                      class="btn-ghost p-1.5 text-xs text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-950/50"
-                      title="Copy full educator login credentials"
-                      @click="copyFullCredentials(t)"
+                      class="btn-secondary text-[11px] py-1 px-2 font-bold"
+                      title="Copy login details to clipboard"
+                      @click="copyFullCredentials(teacher)"
                     >
-                      📋 Copy Login
+                      📋 Copy
                     </button>
-
                     <button
                       type="button"
                       class="btn-ghost p-1.5 text-xs"
-                      title="Edit teacher details"
-                      @click="openEditTeacherModal(t)"
+                      title="Edit teacher"
+                      @click="openEditTeacherModal(teacher)"
                     >
                       ✏️
                     </button>
-
                     <button
+                      v-if="!teacher.is_admin && teacher.email !== 'info@pandeykapil.com.np'"
                       type="button"
-                      class="btn-ghost p-1.5 text-xs text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50"
+                      class="btn-ghost p-1.5 text-xs text-rose-600 hover:bg-rose-50"
                       title="Revoke access"
-                      @click="handleDeleteTeacher(t)"
+                      @click="handleDeleteTeacher(teacher)"
                     >
                       🗑️
                     </button>
                   </div>
-                </td>
-              </tr>
-
-              <tr v-if="filteredTeachers.length === 0">
-                <td colspan="6" class="py-12 text-center text-slate-500">
-                  <p class="text-3xl mb-2">🔍</p>
-                  <p class="font-bold text-slate-800 dark:text-slate-200">No teachers found</p>
-                  <p class="text-xs mt-1">Try refining your search query or room filter.</p>
                 </td>
               </tr>
             </tbody>
@@ -758,112 +1122,9 @@ async function handleSaveTopicNotes(topic: TopicModuleStatus) {
     </section>
 
     <!-- ===================================================================== -->
-    <!-- TAB 2: DYNAMIC ROOM MANAGEMENT -->
-    <!-- ===================================================================== -->
-    <section v-if="activeTab === 'rooms'" class="space-y-4">
-      <div class="card p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border border-brand-200 dark:border-brand-900 bg-brand-50/40 dark:bg-brand-950/20">
-        <div>
-          <h2 class="font-display font-extrabold text-base text-slate-900 dark:text-slate-100">
-            Early Learning Rooms Management
-          </h2>
-          <p class="text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
-            Create and edit room names. Any changes made here dynamically populate throughout the entire service: Weekly Wrap-Ups, Program Book, Learning Stories, and teacher assignments.
-          </p>
-        </div>
-
-        <button
-          type="button"
-          class="btn-primary flex items-center gap-1.5 text-xs font-bold shrink-0 self-start sm:self-auto"
-          @click="openAddRoomModal"
-        >
-          <span>➕</span>
-          <span>Add New Room</span>
-        </button>
-      </div>
-
-      <!-- Rooms Grid -->
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        <div
-          v-for="room in roomsStore.rooms"
-          :key="room.id"
-          class="card p-5 space-y-3 border border-slate-200 dark:border-slate-800 hover:shadow-soft transition"
-        >
-          <div class="flex items-start justify-between gap-2">
-            <div class="flex items-center gap-3">
-              <div class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-100 text-brand-800 dark:bg-brand-950 dark:text-brand-300 text-lg font-bold">
-                🏫
-              </div>
-              <div>
-                <h3 class="font-display font-extrabold text-base text-slate-900 dark:text-slate-100">
-                  {{ room.name }}
-                </h3>
-                <p class="text-xs text-slate-500 dark:text-slate-400">
-                  {{ room.description || 'Active early learning environment' }}
-                </p>
-              </div>
-            </div>
-
-            <div class="flex items-center gap-1">
-              <button
-                type="button"
-                class="btn-ghost p-1.5 text-xs"
-                title="Edit room"
-                @click="openEditRoomModal(room)"
-              >
-                ✏️
-              </button>
-              <button
-                type="button"
-                class="btn-ghost p-1.5 text-xs text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50"
-                title="Delete room"
-                @click="handleDeleteRoom(room)"
-              >
-                🗑️
-              </button>
-            </div>
-          </div>
-
-          <!-- Room Badges & Previews -->
-          <div class="rounded-xl bg-slate-50 dark:bg-slate-800/60 p-3 space-y-1.5 text-xs">
-            <div class="flex items-center justify-between">
-              <span class="text-slate-500 text-[11px]">Wrap-Up Signature:</span>
-              <span class="font-bold text-slate-700 dark:text-slate-200">{{ roomTeam(room.name) }}</span>
-            </div>
-            <div class="flex items-center justify-between">
-              <span class="text-slate-500 text-[11px]">Newsletter Title:</span>
-              <span class="font-bold text-slate-700 dark:text-slate-200">{{ roomTitle(room.name) }}</span>
-            </div>
-            <div class="flex items-center justify-between pt-1 border-t border-slate-200/60 dark:border-slate-700/60">
-              <span class="text-slate-500 text-[11px]">Assigned Staff:</span>
-              <span class="rounded bg-brand-100 text-brand-800 dark:bg-brand-950 dark:text-brand-300 px-1.5 py-0.2 text-[10px] font-bold">
-                {{ admin.teachers.filter(t => t.room === room.name || t.room === 'All Rooms').length }} educators
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ===================================================================== -->
-    <!-- TAB 3: TOPIC & MODULE STATUS MANAGEMENT -->
+    <!-- TAB 4: CURRICULUM TOPICS & MODULE ACCESS STATUS -->
     <!-- ===================================================================== -->
     <section v-if="activeTab === 'topics'" class="space-y-5">
-      <!-- Leadership guidance banner -->
-      <div class="card bg-amber-500/10 border-amber-300 dark:border-amber-700/60 p-4 sm:p-5 flex items-start gap-4">
-        <div class="text-3xl">🚧</div>
-        <div class="space-y-1">
-          <h2 class="font-display font-extrabold text-amber-950 dark:text-amber-200 text-base">
-            Pedagogical Module Development Control
-          </h2>
-          <p class="text-xs sm:text-sm text-amber-900/90 dark:text-amber-200/90 leading-relaxed">
-            When you switch a module status to <strong>Under Development</strong>, the app instantly displays a
-            <span class="rounded bg-amber-200/80 dark:bg-amber-900/60 px-1.5 py-0.5 font-bold">🚧 WIP</span>
-            chip in the navigation sidebar, and presents your leadership notes as an advisory banner directly to teachers on that screen.
-          </p>
-        </div>
-      </div>
-
-      <!-- Modules Grid -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div
           v-for="topic in admin.topicStatuses"
@@ -877,7 +1138,6 @@ async function handleSaveTopicNotes(topic: TopicModuleStatus) {
               : 'border-slate-200 dark:border-slate-800'
           "
         >
-          <!-- Card Header -->
           <div class="flex items-start justify-between gap-3">
             <div class="flex items-center gap-3">
               <div
@@ -893,116 +1153,68 @@ async function handleSaveTopicNotes(topic: TopicModuleStatus) {
                 {{ topic.icon }}
               </div>
               <div>
-                <div class="flex items-center gap-2">
-                  <h3 class="font-display font-extrabold text-base text-slate-900 dark:text-slate-100">
-                    {{ topic.title }}
-                  </h3>
-                  <RouterLink
-                    :to="topic.route_path"
-                    class="text-xs font-semibold text-brand-600 dark:text-brand-400 hover:underline"
-                    target="_blank"
-                    title="Open view in new tab"
-                  >
-                    View ↗
-                  </RouterLink>
-                </div>
+                <h3 class="font-display font-extrabold text-base text-slate-900 dark:text-slate-100">
+                  {{ topic.title }}
+                </h3>
                 <p class="text-xs text-slate-500 dark:text-slate-400 font-mono">
-                  Route: {{ topic.route_path }}
+                  {{ topic.route_path }}
                 </p>
               </div>
             </div>
 
-            <!-- Current status badge -->
-            <div>
-              <span
-                class="rounded-full px-2.5 py-1 text-xs font-black uppercase tracking-wider inline-flex items-center gap-1"
-                :class="
-                  topic.status === 'active'
-                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
-                    : topic.status === 'under_development'
-                    ? 'bg-amber-100 text-amber-900 dark:bg-amber-950/60 dark:text-amber-200'
-                    : topic.status === 'beta'
-                    ? 'bg-violet-100 text-violet-900 dark:bg-violet-950/60 dark:text-violet-200'
-                    : 'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-400'
-                "
-              >
-                <span v-if="topic.status === 'active'">🟢 Active</span>
-                <span v-else-if="topic.status === 'under_development'">🚧 Under Dev</span>
-                <span v-else-if="topic.status === 'beta'">🧪 Beta</span>
-                <span v-else>⏸️ Disabled</span>
-              </span>
-            </div>
+            <span
+              class="rounded-full px-2.5 py-1 text-xs font-black uppercase tracking-wider inline-flex items-center gap-1"
+              :class="
+                topic.status === 'active'
+                  ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                  : topic.status === 'under_development'
+                  ? 'bg-amber-100 text-amber-900 dark:bg-amber-950/60 dark:text-amber-200'
+                  : 'bg-violet-100 text-violet-900 dark:bg-violet-950/60 dark:text-violet-200'
+              "
+            >
+              {{ topic.status.replace('_', ' ') }}
+            </span>
           </div>
 
-          <!-- Status Switcher Pill Bar -->
-          <div class="space-y-1.5">
-            <label class="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-              Module Access Status
-            </label>
-            <div class="grid grid-cols-4 gap-1.5 p-1 rounded-xl bg-slate-100 dark:bg-slate-800">
-              <button
-                type="button"
-                class="py-1.5 px-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1"
-                :class="
-                  topic.status === 'active'
-                    ? 'bg-white dark:bg-slate-700 text-emerald-700 dark:text-emerald-300 shadow-sm'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-                "
-                @click="handleSetTopicStatus(topic, 'active')"
-              >
-                <span>🟢</span>
-                <span>Active</span>
-              </button>
-
-              <button
-                type="button"
-                class="py-1.5 px-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1"
-                :class="
-                  topic.status === 'under_development'
-                    ? 'bg-amber-500 text-white shadow-sm'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-                "
-                @click="handleSetTopicStatus(topic, 'under_development')"
-              >
-                <span>🚧</span>
-                <span>Under Dev</span>
-              </button>
-
-              <button
-                type="button"
-                class="py-1.5 px-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1"
-                :class="
-                  topic.status === 'beta'
-                    ? 'bg-violet-600 text-white shadow-sm'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-                "
-                @click="handleSetTopicStatus(topic, 'beta')"
-              >
-                <span>🧪</span>
-                <span>Beta</span>
-              </button>
-
-              <button
-                type="button"
-                class="py-1.5 px-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1"
-                :class="
-                  topic.status === 'disabled'
-                    ? 'bg-slate-400 text-white shadow-sm'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-                "
-                @click="handleSetTopicStatus(topic, 'disabled')"
-              >
-                <span>⏸️</span>
-                <span>Pause</span>
-              </button>
-            </div>
+          <div class="grid grid-cols-4 gap-1.5 p-1 rounded-xl bg-slate-100 dark:bg-slate-800">
+            <button
+              type="button"
+              class="py-1.5 px-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1"
+              :class="topic.status === 'active' ? 'bg-white dark:bg-slate-700 text-emerald-700 dark:text-emerald-300 shadow-sm' : 'text-slate-600 dark:text-slate-400'"
+              @click="handleSetTopicStatus(topic, 'active')"
+            >
+              🟢 Active
+            </button>
+            <button
+              type="button"
+              class="py-1.5 px-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1"
+              :class="topic.status === 'under_development' ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400'"
+              @click="handleSetTopicStatus(topic, 'under_development')"
+            >
+              🚧 WIP
+            </button>
+            <button
+              type="button"
+              class="py-1.5 px-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1"
+              :class="topic.status === 'beta' ? 'bg-violet-600 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400'"
+              @click="handleSetTopicStatus(topic, 'beta')"
+            >
+              🧪 Beta
+            </button>
+            <button
+              type="button"
+              class="py-1.5 px-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1"
+              :class="topic.status === 'disabled' ? 'bg-slate-400 text-white shadow-sm' : 'text-slate-600 dark:text-slate-400'"
+              @click="handleSetTopicStatus(topic, 'disabled')"
+            >
+              ⏸️ Pause
+            </button>
           </div>
 
-          <!-- Leadership Notes / Instructions to Educators -->
           <div class="space-y-1.5">
             <div class="flex items-center justify-between">
               <label class="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                Educational Leadership Note (Shown to Teachers)
+                Educational Leadership Note
               </label>
               <button
                 type="button"
@@ -1016,100 +1228,47 @@ async function handleSaveTopicNotes(topic: TopicModuleStatus) {
             <textarea
               :value="getTopicNotes(topic)"
               rows="2"
-              class="textarea text-xs w-full leading-relaxed"
-              placeholder="e.g. Currently reviewing with educational leader. Focus on EYLF V2.0 sub-outcome 4.2."
+              class="textarea text-xs w-full"
               @input="e => onNotesInput(topic.topic_key, (e.target as HTMLTextAreaElement).value)"
             />
           </div>
-
-          <!-- Preview chip for educators -->
-          <div
-            v-if="topic.status === 'under_development'"
-            class="rounded-xl border border-amber-300/80 bg-amber-50 dark:bg-amber-950/40 p-3 text-xs text-amber-900 dark:text-amber-200 space-y-1"
-          >
-            <div class="flex items-center gap-1.5 font-bold">
-              <span>👁️ Teacher Preview Banner:</span>
-            </div>
-            <p class="italic text-[11px] opacity-90">
-              "{{ getTopicNotes(topic) || 'This module is currently under active development.' }}"
-            </p>
-          </div>
         </div>
       </div>
     </section>
 
     <!-- ===================================================================== -->
-    <!-- TAB 4: NQF GOVERNANCE & CENTRE DETAILS -->
-    <!-- ===================================================================== -->
-    <section v-if="activeTab === 'governance'" class="space-y-4">
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <!-- Quality Area 7 Oversight -->
-        <div class="card p-5 space-y-3">
-          <div class="flex items-center gap-2">
-            <span class="text-2xl">🏛️</span>
-            <div>
-              <h3 class="font-display font-extrabold text-base">Quality Area 7 — Governance & Leadership</h3>
-              <p class="text-xs text-slate-500">ACECQA National Quality Standard compliance</p>
-            </div>
-          </div>
-          <ul class="space-y-2 text-xs text-slate-600 dark:text-slate-300">
-            <li class="flex items-start gap-2">
-              <span class="text-emerald-500">✓</span>
-              <span><strong>Standard 7.1:</strong> Governance arrangements facilitate effective operation (educator credentials & email auth).</span>
-            </li>
-            <li class="flex items-start gap-2">
-              <span class="text-emerald-500">✓</span>
-              <span><strong>Standard 7.2:</strong> Educational leadership establishes a culture of continuous reflection and pedagogical enquiry.</span>
-            </li>
-            <li class="flex items-start gap-2">
-              <span class="text-emerald-500">✓</span>
-              <span><strong>Quality Improvement Plan (QIP):</strong> Under development module notes align with our centre goals for 2026.</span>
-            </li>
-          </ul>
-        </div>
-
-        <!-- Room Allocation Matrix -->
-        <div class="card p-5 space-y-3">
-          <div class="flex items-center gap-2">
-            <span class="text-2xl">🏫</span>
-            <div>
-              <h3 class="font-display font-extrabold text-base">Room Allocation Overview</h3>
-              <p class="text-xs text-slate-500">Staff distribution across rooms</p>
-            </div>
-          </div>
-          <div class="grid grid-cols-2 gap-2 text-xs">
-            <div
-              v-for="room in roomsStore.roomNames"
-              :key="room"
-              class="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 flex items-center justify-between"
-            >
-              <span class="font-semibold">{{ room }}</span>
-              <span class="rounded-full bg-brand-100 dark:bg-brand-950 text-brand-800 dark:text-brand-300 font-bold px-2 py-0.5 text-[10px]">
-                {{ admin.teachers.filter(t => t.room === room || t.room === 'All Rooms').length }} staff
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ===================================================================== -->
-    <!-- TAB 5: SUPABASE CLOUD & SYNC -->
+    <!-- TAB 5: SUPABASE CLOUD CONNECTION -->
     <!-- ===================================================================== -->
     <section v-if="activeTab === 'cloud'" class="space-y-4">
       <SupabaseConnectionCard />
     </section>
 
     <!-- ===================================================================== -->
-    <!-- ADD / EDIT TEACHER MODAL -->
+    <!-- TAB 6: NQF GOVERNANCE -->
+    <!-- ===================================================================== -->
+    <section v-if="activeTab === 'governance'" class="space-y-4">
+      <div class="card p-5 space-y-3">
+        <h3 class="font-display font-extrabold text-base flex items-center gap-2">
+          <span>🏛️</span>
+          <span>ACECQA Quality Area 7 Governance</span>
+        </h3>
+        <p class="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+          The service operates under the National Quality Standard QA7. Super Administrator manages multiple centres with pure separation of duties.
+        </p>
+      </div>
+    </section>
+
+    <!-- ===================================================================== -->
+    <!-- RESPONSIVE MODAL: ADD / EDIT TEACHER (STICKY FOOTER FIX) -->
     <!-- ===================================================================== -->
     <div
       v-if="showTeacherModal"
-      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm"
+      class="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-sm overflow-hidden"
       @click.self="showTeacherModal = false"
     >
-      <div class="card max-w-lg w-full p-6 space-y-5 bg-white dark:bg-slate-900 shadow-lift">
-        <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+      <div class="card max-w-xl w-full max-h-[88vh] flex flex-col bg-white dark:bg-slate-900 rounded-2xl shadow-lift border border-slate-200 dark:border-slate-800">
+        <!-- Sticky Header -->
+        <div class="flex items-center justify-between p-4 sm:p-5 border-b border-slate-200 dark:border-slate-800 shrink-0">
           <div class="flex items-center gap-2">
             <span class="text-xl">{{ editingTeacherId ? '✏️' : '➕' }}</span>
             <h3 class="font-display font-black text-lg">
@@ -1118,37 +1277,35 @@ async function handleSaveTopicNotes(topic: TopicModuleStatus) {
           </div>
           <button
             type="button"
-            class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+            class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-lg"
             @click="showTeacherModal = false"
           >
             ✕
           </button>
         </div>
 
-        <form class="space-y-4" @submit.prevent="handleSaveTeacher">
+        <!-- Scrollable Form Body -->
+        <form id="teacher-form" class="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4" @submit.prevent="handleSaveTeacher">
           <!-- Centre Group Name -->
           <div class="space-y-1">
             <div class="flex items-center justify-between">
               <label class="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
                 Centre Group Name *
               </label>
-              <span class="text-[11px] font-semibold text-brand-600 dark:text-brand-400">
-                Data Isolation Scope
-              </span>
+              <button
+                type="button"
+                class="text-xs font-bold text-brand-600 hover:underline flex items-center gap-1"
+                @click="openAddCentreModal"
+              >
+                <span>➕</span>
+                <span>New Centre</span>
+              </button>
             </div>
-            <input
-              v-model="teacherForm.centre_name"
-              type="text"
-              required
-              list="admin-centre-groups-list"
-              placeholder="e.g. Hadfield Early Learning Centre"
-              class="input w-full"
-            />
-            <datalist id="admin-centre-groups-list">
-              <option v-for="g in admin.centreGroups" :key="g" :value="g" />
-            </datalist>
+            <select v-model="teacherForm.centre_name" class="select w-full" required>
+              <option v-for="c in admin.centreGroups" :key="c" :value="c">{{ c }}</option>
+            </select>
             <p class="text-[11px] text-slate-500">
-              Only educators within this Centre Group will have access to its inquiry projects, stories, and wrap-ups.
+              Data isolation scope: Educator can only see documents in this Centre.
             </p>
           </div>
 
@@ -1161,7 +1318,7 @@ async function handleSaveTopicNotes(topic: TopicModuleStatus) {
               v-model="teacherForm.name"
               type="text"
               required
-              placeholder="e.g. Lakshmi"
+              placeholder="e.g. Sanoj"
               class="input w-full"
             />
           </div>
@@ -1175,7 +1332,7 @@ async function handleSaveTopicNotes(topic: TopicModuleStatus) {
               v-model="teacherForm.email"
               type="email"
               required
-              placeholder="e.g. lakshmi@hadfield.edu.au"
+              placeholder="e.g. Sanoj@gmail.com"
               class="input w-full"
             />
             <p class="text-[11px] text-slate-500">
@@ -1198,9 +1355,6 @@ async function handleSaveTopicNotes(topic: TopicModuleStatus) {
               placeholder="e.g. Educator2026!"
               class="input w-full font-mono text-sm"
             />
-            <p class="text-[11px] text-slate-500">
-              The educator will enter this password when logging into their account.
-            </p>
           </div>
 
           <!-- Role & Room Grid -->
@@ -1215,34 +1369,25 @@ async function handleSaveTopicNotes(topic: TopicModuleStatus) {
             </div>
 
             <div class="space-y-1">
-              <label class="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
-                Assigned Room
-              </label>
+              <div class="flex items-center justify-between">
+                <label class="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
+                  Assigned Room
+                </label>
+                <button
+                  type="button"
+                  class="text-[11px] font-bold text-brand-600 hover:underline"
+                  @click="openAddRoomModal(teacherForm.centre_name)"
+                >
+                  + Add Room
+                </button>
+              </div>
               <select v-model="teacherForm.room" class="select w-full">
-                <option v-for="rm in roomOptions" :key="rm" :value="rm">{{ rm }}</option>
+                <option v-for="rm in teacherFormRoomOptions" :key="rm" :value="rm">{{ rm }}</option>
               </select>
             </div>
           </div>
 
-          <!-- Admin Privileges Checkbox -->
-          <label class="flex items-center gap-3 p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 cursor-pointer">
-            <input
-              v-model="teacherForm.is_admin"
-              type="checkbox"
-              class="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
-            />
-            <div class="space-y-0.5">
-              <p class="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                <span>🛡️</span>
-                <span>Grant Administrator Privileges</span>
-              </p>
-              <p class="text-[11px] text-slate-500 dark:text-slate-400 leading-tight">
-                Allows this educator to access the Admin Dashboard, authorize emails, and manage rooms.
-              </p>
-            </div>
-          </label>
-
-          <!-- Initial Status -->
+          <!-- Status -->
           <div class="space-y-1">
             <label class="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
               Access Status
@@ -1262,59 +1407,194 @@ async function handleSaveTopicNotes(topic: TopicModuleStatus) {
             <textarea
               v-model="teacherForm.notes"
               rows="2"
-              placeholder="e.g. Master of Teaching (Early Childhood), WWCC verified, First Aid current."
+              placeholder="e.g. Master of Teaching, WWCC verified, First Aid current."
               class="textarea text-xs w-full"
             />
           </div>
-
-          <!-- Modal Actions -->
-          <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-200 dark:border-slate-800">
-            <button
-              type="button"
-              class="btn-ghost"
-              @click="showTeacherModal = false"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              class="btn-primary flex items-center gap-2"
-              :disabled="teacherFormSubmitting"
-            >
-              <span>{{ editingTeacherId ? 'Save Changes' : 'Grant Login Access' }}</span>
-              <span v-if="teacherFormSubmitting">⏳</span>
-            </button>
-          </div>
         </form>
+
+        <!-- Sticky Fixed Footer: Save and Cancel ALWAYS Accessible -->
+        <div class="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/95 flex items-center justify-end gap-3 shrink-0">
+          <button
+            type="button"
+            class="btn-ghost text-xs"
+            @click="showTeacherModal = false"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            form="teacher-form"
+            class="btn-primary text-xs flex items-center gap-2 font-bold px-5"
+            :disabled="teacherFormSubmitting"
+          >
+            <span>{{ editingTeacherId ? 'Save Changes' : 'Grant Login Access' }}</span>
+            <span v-if="teacherFormSubmitting">⏳</span>
+          </button>
+        </div>
       </div>
     </div>
 
     <!-- ===================================================================== -->
-    <!-- ADD / EDIT ROOM MODAL -->
+    <!-- RESPONSIVE MODAL: ADD / EDIT CENTRE -->
     <!-- ===================================================================== -->
     <div
-      v-if="showRoomModal"
-      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm"
-      @click.self="showRoomModal = false"
+      v-if="showCentreModal"
+      class="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-sm overflow-hidden"
+      @click.self="showCentreModal = false"
     >
-      <div class="card max-w-md w-full p-6 space-y-5 bg-white dark:bg-slate-900 shadow-lift">
-        <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+      <div class="card max-w-lg w-full max-h-[88vh] flex flex-col bg-white dark:bg-slate-900 rounded-2xl shadow-lift border border-slate-200 dark:border-slate-800">
+        <div class="flex items-center justify-between p-4 sm:p-5 border-b border-slate-200 dark:border-slate-800 shrink-0">
           <div class="flex items-center gap-2">
             <span class="text-xl">🏫</span>
             <h3 class="font-display font-black text-lg">
-              {{ editingRoomId ? 'Edit Room' : 'Add Early Learning Room' }}
+              {{ editingCentreId ? 'Edit Centre Details' : 'Register New Centre / School' }}
             </h3>
           </div>
           <button
             type="button"
-            class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+            class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-lg"
+            @click="showCentreModal = false"
+          >
+            ✕
+          </button>
+        </div>
+
+        <form id="centre-form" class="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4" @submit.prevent="handleSaveCentre">
+          <div class="space-y-1">
+            <label class="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
+              Centre Name *
+            </label>
+            <input
+              v-model="centreForm.name"
+              type="text"
+              required
+              placeholder="e.g. South St Early Learning Centre"
+              class="input w-full"
+            />
+          </div>
+
+          <div class="grid grid-cols-2 gap-3">
+            <div class="space-y-1">
+              <label class="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
+                Centre Code
+              </label>
+              <input
+                v-model="centreForm.code"
+                type="text"
+                placeholder="e.g. SSELC"
+                class="input w-full"
+              />
+            </div>
+            <div class="space-y-1">
+              <label class="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
+                Phone Number
+              </label>
+              <input
+                v-model="centreForm.phone"
+                type="tel"
+                placeholder="e.g. 03 9123 4567"
+                class="input w-full"
+              />
+            </div>
+          </div>
+
+          <div class="space-y-1">
+            <label class="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
+              Address / Suburb
+            </label>
+            <input
+              v-model="centreForm.address"
+              type="text"
+              placeholder="e.g. 120 South Street, Hadfield VIC 3046"
+              class="input w-full"
+            />
+          </div>
+
+          <div v-if="!editingCentreId" class="space-y-1">
+            <label class="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
+              Initial Learning Rooms (Comma separated)
+            </label>
+            <input
+              v-model="centreForm.initial_rooms"
+              type="text"
+              placeholder="e.g. Nursery, Toddlers, Kindergarten"
+              class="input w-full"
+            />
+            <p class="text-[11px] text-slate-500">
+              These rooms will automatically be created and linked to this Centre.
+            </p>
+          </div>
+
+          <div class="space-y-1">
+            <label class="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
+              Notes / Governance Summary
+            </label>
+            <textarea
+              v-model="centreForm.notes"
+              rows="2"
+              placeholder="e.g. Approved provider, service licence number, or leadership details."
+              class="textarea text-xs w-full"
+            />
+          </div>
+        </form>
+
+        <div class="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/95 flex items-center justify-end gap-3 shrink-0">
+          <button
+            type="button"
+            class="btn-ghost text-xs"
+            @click="showCentreModal = false"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            form="centre-form"
+            class="btn-primary text-xs flex items-center gap-2 font-bold px-5"
+            :disabled="centreFormSubmitting"
+          >
+            <span>{{ editingCentreId ? 'Save Changes' : 'Create Centre' }}</span>
+            <span v-if="centreFormSubmitting">⏳</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================================================================== -->
+    <!-- RESPONSIVE MODAL: ADD / EDIT ROOM -->
+    <!-- ===================================================================== -->
+    <div
+      v-if="showRoomModal"
+      class="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-sm overflow-hidden"
+      @click.self="showRoomModal = false"
+    >
+      <div class="card max-w-md w-full max-h-[88vh] flex flex-col bg-white dark:bg-slate-900 rounded-2xl shadow-lift border border-slate-200 dark:border-slate-800">
+        <div class="flex items-center justify-between p-4 sm:p-5 border-b border-slate-200 dark:border-slate-800 shrink-0">
+          <div class="flex items-center gap-2">
+            <span class="text-xl">🚪</span>
+            <h3 class="font-display font-black text-lg">
+              {{ editingRoomId ? 'Edit Room' : 'Add Learning Room' }}
+            </h3>
+          </div>
+          <button
+            type="button"
+            class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-lg"
             @click="showRoomModal = false"
           >
             ✕
           </button>
         </div>
 
-        <form class="space-y-4" @submit.prevent="handleSaveRoom">
+        <form id="room-form" class="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4" @submit.prevent="handleSaveRoom">
+          <div class="space-y-1">
+            <label class="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
+              Centre Group *
+            </label>
+            <select v-model="roomForm.centre_name" class="select w-full" required>
+              <option v-for="c in admin.centreGroups" :key="c" :value="c">{{ c }}</option>
+            </select>
+          </div>
+
           <div class="space-y-1">
             <label class="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
               Room Name *
@@ -1323,7 +1603,7 @@ async function handleSaveTopicNotes(topic: TopicModuleStatus) {
               v-model="roomForm.name"
               type="text"
               required
-              placeholder="e.g. Sunflowers Room, Koalas Room"
+              placeholder="e.g. Koalas Room, Nursery, Dandelions"
               class="input w-full"
             />
           </div>
@@ -1335,29 +1615,30 @@ async function handleSaveTopicNotes(topic: TopicModuleStatus) {
             <textarea
               v-model="roomForm.description"
               rows="2"
-              placeholder="e.g. 3-year old kindergarten, infant nursery, toddler exploration."
+              placeholder="e.g. 3-year old kindergarten inquiry, infant nursery."
               class="textarea text-xs w-full"
             />
           </div>
-
-          <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-200 dark:border-slate-800">
-            <button
-              type="button"
-              class="btn-ghost"
-              @click="showRoomModal = false"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              class="btn-primary flex items-center gap-2"
-              :disabled="roomFormSubmitting"
-            >
-              <span>{{ editingRoomId ? 'Save Room' : 'Create Room' }}</span>
-              <span v-if="roomFormSubmitting">⏳</span>
-            </button>
-          </div>
         </form>
+
+        <div class="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/95 flex items-center justify-end gap-3 shrink-0">
+          <button
+            type="button"
+            class="btn-ghost text-xs"
+            @click="showRoomModal = false"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            form="room-form"
+            class="btn-primary text-xs flex items-center gap-2 font-bold px-5"
+            :disabled="roomFormSubmitting"
+          >
+            <span>{{ editingRoomId ? 'Save Room' : 'Create Room' }}</span>
+            <span v-if="roomFormSubmitting">⏳</span>
+          </button>
+        </div>
       </div>
     </div>
   </div>

@@ -19,6 +19,7 @@ export const DEFAULT_ROOM_NAMES = [
 export const DEFAULT_ROOM_RECORDS: RoomRecord[] = DEFAULT_ROOM_NAMES.map((name, i) => ({
   id: `default-room-${i}`,
   user_id: '',
+  centre_name: 'Hadfield Early Learning Centre',
   name,
   description: `${name} room learning community`,
   sort_order: i,
@@ -42,9 +43,30 @@ export const useRoomsStore = defineStore('rooms', () => {
   )
 
   const roomNames = computed(() => {
-    const names = activeRooms.value.map(r => r.name)
+    const activeCentre =
+      auth.centreName && auth.centreName !== 'Platform Administrator'
+        ? auth.centreName.toLowerCase().trim()
+        : 'hadfield early learning centre'
+    const centreRooms = activeRooms.value.filter(
+      r => !r.centre_name || r.centre_name.toLowerCase().trim() === activeCentre,
+    )
+    const names = centreRooms.map(r => r.name)
     return names.length > 0 ? names : Array.from(DEFAULT_ROOM_NAMES)
   })
+
+  function getRoomsForCentre(centreName: string): RoomRecord[] {
+    const norm = centreName.toLowerCase().trim()
+    return activeRooms.value.filter(
+      r => !r.centre_name || r.centre_name.toLowerCase().trim() === norm,
+    )
+  }
+
+  function getRoomNamesForCentre(centreName: string): string[] {
+    const list = getRoomsForCentre(centreName).map(r => r.name)
+    if (list.length > 0) return list
+    if (centreName.toLowerCase().includes('hadfield')) return Array.from(DEFAULT_ROOM_NAMES)
+    return []
+  }
 
   async function loadRooms() {
     loading.value = true
@@ -57,6 +79,7 @@ export const useRoomsStore = defineStore('rooms', () => {
           for (let i = 0; i < DEFAULT_ROOM_NAMES.length; i++) {
             const name = DEFAULT_ROOM_NAMES[i]
             const created = await roomsRepo.create(scope(), {
+              centre_name: 'Hadfield Early Learning Centre',
               name,
               description: `${name} room learning community`,
               sort_order: i,
@@ -80,19 +103,51 @@ export const useRoomsStore = defineStore('rooms', () => {
     }
   }
 
-  async function addRoom(name: string, description = '') {
+  async function addRoom(
+    name: string,
+    centreOrDescription = 'Hadfield Early Learning Centre',
+    optionalDescription = '',
+  ) {
     const trimmed = name.trim()
     if (!trimmed) throw new Error('Room name is required.')
 
-    const exists = rooms.value.some(
-      r => r.name.toLowerCase() === trimmed.toLowerCase() && r.is_active !== false,
-    )
-    if (exists) throw new Error(`A room named "${trimmed}" already exists.`)
+    let targetCentre = 'Hadfield Early Learning Centre'
+    let targetDesc = ''
 
-    const nextOrder = rooms.value.length
+    if (optionalDescription) {
+      targetCentre = centreOrDescription.trim() || 'Hadfield Early Learning Centre'
+      targetDesc = optionalDescription.trim()
+    } else if (
+      centreOrDescription.toLowerCase().includes('centre') ||
+      centreOrDescription.toLowerCase().includes('school') ||
+      centreOrDescription.toLowerCase().includes('elc')
+    ) {
+      targetCentre = centreOrDescription.trim()
+      targetDesc = ''
+    } else {
+      targetCentre =
+        auth.centreName && auth.centreName !== 'Platform Administrator'
+          ? auth.centreName.trim()
+          : 'Hadfield Early Learning Centre'
+      targetDesc = centreOrDescription.trim()
+    }
+
+    const exists = rooms.value.some(
+      r =>
+        (r.centre_name || 'Hadfield Early Learning Centre').toLowerCase().trim() ===
+          targetCentre.toLowerCase().trim() &&
+        r.name.toLowerCase() === trimmed.toLowerCase() &&
+        r.is_active !== false,
+    )
+    if (exists) throw new Error(`A room named "${trimmed}" already exists in ${targetCentre}.`)
+
+    const nextOrder = rooms.value.filter(
+      r => (r.centre_name || 'Hadfield Early Learning Centre').toLowerCase() === targetCentre.toLowerCase(),
+    ).length
     const created = await roomsRepo.create(scope(), {
       name: trimmed,
-      description: description.trim(),
+      centre_name: targetCentre,
+      description: targetDesc,
       sort_order: nextOrder,
       is_active: true,
     })
@@ -103,10 +158,16 @@ export const useRoomsStore = defineStore('rooms', () => {
   async function updateRoom(id: string, patch: Partial<RoomRecord>) {
     if (patch.name) {
       patch.name = patch.name.trim()
+      const target = rooms.value.find(r => r.id === id)
+      const targetCentre = (patch.centre_name || target?.centre_name || 'Hadfield Early Learning Centre').toLowerCase().trim()
       const conflict = rooms.value.some(
-        r => r.id !== id && r.name.toLowerCase() === patch.name!.toLowerCase() && r.is_active !== false,
+        r =>
+          r.id !== id &&
+          (r.centre_name || 'Hadfield Early Learning Centre').toLowerCase().trim() === targetCentre &&
+          r.name.toLowerCase() === patch.name!.toLowerCase() &&
+          r.is_active !== false,
       )
-      if (conflict) throw new Error(`Another room is already named "${patch.name}".`)
+      if (conflict) throw new Error(`Another room is already named "${patch.name}" in this centre.`)
     }
     const updated = await roomsRepo.update(scope(), id, patch)
     rooms.value = rooms.value.map(r => (r.id === id ? updated : r))
@@ -118,8 +179,17 @@ export const useRoomsStore = defineStore('rooms', () => {
     rooms.value = rooms.value.filter(r => r.id !== id)
   }
 
-  function getRoomByName(name: string): RoomRecord | undefined {
-    return rooms.value.find(r => r.name.toLowerCase() === name.trim().toLowerCase())
+  function getRoomByName(name: string, centreName?: string): RoomRecord | undefined {
+    const normName = name.trim().toLowerCase()
+    if (centreName) {
+      const normCentre = centreName.trim().toLowerCase()
+      return rooms.value.find(
+        r =>
+          (r.centre_name || 'Hadfield Early Learning Centre').toLowerCase().trim() === normCentre &&
+          r.name.toLowerCase() === normName,
+      )
+    }
+    return rooms.value.find(r => r.name.toLowerCase() === normName)
   }
 
   return {
@@ -133,5 +203,7 @@ export const useRoomsStore = defineStore('rooms', () => {
     updateRoom,
     deleteRoom,
     getRoomByName,
+    getRoomsForCentre,
+    getRoomNamesForCentre,
   }
 })

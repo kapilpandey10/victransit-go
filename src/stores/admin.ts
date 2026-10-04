@@ -2,7 +2,9 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { createRepo, TABLES } from '@/services/repo'
 import { useAuthStore } from './auth'
+import { useRoomsStore } from './rooms'
 import type {
+  CentreRecord,
   TeacherAccess,
   TeacherAccessStatus,
   TeacherRole,
@@ -12,6 +14,23 @@ import type {
 
 const teacherRepo = createRepo<TeacherAccess>(TABLES.teacherAccess, { isGlobal: true })
 const topicRepo = createRepo<TopicModuleStatus>(TABLES.topicStatuses, { isGlobal: true })
+const centresRepo = createRepo<CentreRecord>(TABLES.centres, { isGlobal: true })
+
+export const DEFAULT_CENTRES: CentreRecord[] = [
+  {
+    id: 'centre-hadfield',
+    user_id: '',
+    name: 'Hadfield Early Learning Centre',
+    code: 'HELC',
+    address: 'Hadfield VIC, Australia',
+    phone: '',
+    email: '',
+    notes: 'Primary Reggio-inspired inquiry centre.',
+    is_active: true,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  },
+]
 
 export const DEFAULT_TOPICS: Array<{
   topic_key: string
@@ -118,18 +137,20 @@ export const DEFAULT_TEACHERS: Array<{
   {
     email: 'info@pandeykapil.com.np',
     name: 'Kapil Pandey',
-    role: 'Centre Director',
-    room: 'All Rooms',
+    role: 'System Administrator',
+    room: 'No Room (Admin Privacy)',
     status: 'active',
-    centre_name: 'Hadfield Early Learning Centre',
+    centre_name: 'Platform Administration',
     password: '',
     is_admin: true,
-    notes: 'Master Administrator and Service Director.',
+    notes: 'Platform Super Administrator with complete child privacy separation.',
   },
 ]
 
 export const useAdminStore = defineStore('admin', () => {
   const auth = useAuthStore()
+  const roomsStore = useRoomsStore()
+  const centres = ref<CentreRecord[]>([...DEFAULT_CENTRES])
   const teachers = ref<TeacherAccess[]>(
     DEFAULT_TEACHERS.map((t, idx) => ({
       ...t,
@@ -162,11 +183,72 @@ export const useAdminStore = defineStore('admin', () => {
   /** All distinct Centre Groups configured in the system */
   const centreGroups = computed(() => {
     const set = new Set<string>()
+    for (const c of centres.value) {
+      if (c.name?.trim()) set.add(c.name.trim())
+    }
     for (const t of teachers.value) {
-      if (t.centre_name?.trim()) set.add(t.centre_name.trim())
+      if (t.centre_name?.trim() && t.centre_name !== 'Platform Administration') {
+        set.add(t.centre_name.trim())
+      }
     }
     if (set.size === 0) set.add('Hadfield Early Learning Centre')
     return Array.from(set).sort()
+  })
+
+  /** Centre Breakdown with room counts and educators per room */
+  const centreStats = computed(() => {
+    return centreGroups.value.map(cName => {
+      const centreObj = centres.value.find(c => c.name.toLowerCase() === cName.toLowerCase())
+      const centreRooms = roomsStore.getRoomsForCentre(cName)
+      const centreTeachers = teachers.value.filter(
+        t => (t.centre_name || '').toLowerCase().trim() === cName.toLowerCase().trim() && !t.is_admin,
+      )
+
+      // Map educators to each room
+      const roomsWithStaff = centreRooms.map(rm => {
+        const staff = centreTeachers.filter(
+          t => t.room === 'All Rooms' || t.room.toLowerCase().includes(rm.name.toLowerCase()),
+        )
+        return {
+          ...rm,
+          educators: staff,
+        }
+      })
+
+      return {
+        id: centreObj?.id || `cg-${cName}`,
+        name: cName,
+        address: centreObj?.address || '',
+        phone: centreObj?.phone || '',
+        email: centreObj?.email || '',
+        notes: centreObj?.notes || '',
+        is_active: centreObj ? centreObj.is_active !== false : true,
+        rooms: roomsWithStaff,
+        roomCount: centreRooms.length,
+        educators: centreTeachers,
+        educatorCount: centreTeachers.length,
+        activeCount: centreTeachers.filter(t => t.status === 'active').length,
+        invitedCount: centreTeachers.filter(t => t.status === 'invited').length,
+      }
+    })
+  })
+
+  /** High-level operational stats for the executive admin dashboard */
+  const systemStats = computed(() => {
+    const totalCentres = centreGroups.value.length
+    const totalRooms = roomsStore.rooms.filter(r => r.is_active !== false).length
+    const nonAdminTeachers = teachers.value.filter(t => !t.is_admin && t.role !== 'System Administrator')
+    const totalEducators = nonAdminTeachers.length
+    const activeEducators = nonAdminTeachers.filter(t => t.status === 'active').length
+    const invitedEducators = nonAdminTeachers.filter(t => t.status === 'invited').length
+
+    return {
+      totalCentres,
+      totalRooms,
+      totalEducators,
+      activeEducators,
+      invitedEducators,
+    }
   })
 
   const underDevTopics = computed(() =>
@@ -265,11 +347,85 @@ export const useAdminStore = defineStore('admin', () => {
     }
   }
 
+  async function loadCentres() {
+    try {
+      const list = await centresRepo.list(scope(), { orderBy: 'name', ascending: true })
+      if (list.length > 0) {
+        centres.value = list
+      } else {
+        try {
+          const seeded: CentreRecord[] = []
+          for (const c of DEFAULT_CENTRES) {
+            const item = await centresRepo.create(scope(), {
+              name: c.name,
+              code: c.code,
+              address: c.address,
+              phone: c.phone,
+              email: c.email,
+              notes: c.notes,
+              is_active: true,
+            })
+            seeded.push(item)
+          }
+          if (seeded.length > 0) centres.value = seeded
+        } catch {
+          // fallback
+        }
+      }
+    } catch {
+      // fallback
+    }
+  }
+
+  async function addCentre(payload: {
+    name: string
+    code?: string
+    address?: string
+    phone?: string
+    email?: string
+    notes?: string
+  }) {
+    const trimmed = payload.name.trim()
+    if (!trimmed) throw new Error('Centre / School name is required.')
+    const exists = centres.value.some(c => c.name.toLowerCase() === trimmed.toLowerCase())
+    if (exists) throw new Error(`A Centre named "${trimmed}" already exists.`)
+
+    const created = await centresRepo.create(scope(), {
+      name: trimmed,
+      code: payload.code?.trim() || '',
+      address: payload.address?.trim() || '',
+      phone: payload.phone?.trim() || '',
+      email: payload.email?.trim() || '',
+      notes: payload.notes?.trim() || '',
+      is_active: true,
+    })
+    centres.value = [...centres.value, created]
+    return created
+  }
+
+  async function updateCentre(id: string, patch: Partial<CentreRecord>) {
+    if (patch.name) {
+      patch.name = patch.name.trim()
+      const exists = centres.value.some(
+        c => c.id !== id && c.name.toLowerCase() === patch.name!.toLowerCase(),
+      )
+      if (exists) throw new Error(`Another Centre named "${patch.name}" already exists.`)
+    }
+    const updated = await centresRepo.update(scope(), id, patch)
+    centres.value = centres.value.map(c => (c.id === id ? updated : c))
+    return updated
+  }
+
+  async function deleteCentre(id: string) {
+    await centresRepo.remove(scope(), id)
+    centres.value = centres.value.filter(c => c.id !== id)
+  }
+
   async function init() {
     if (initialised.value) return
     loading.value = true
     try {
-      await Promise.allSettled([loadTeachers(), loadTopics()])
+      await Promise.allSettled([loadCentres(), loadTeachers(), loadTopics()])
       initialised.value = true
     } catch {
       initialised.value = true
@@ -399,6 +555,7 @@ export const useAdminStore = defineStore('admin', () => {
   }
 
   return {
+    centres,
     teachers,
     topicStatuses,
     loading,
@@ -407,12 +564,18 @@ export const useAdminStore = defineStore('admin', () => {
     invitedTeachers,
     suspendedTeachers,
     centreGroups,
+    centreStats,
+    systemStats,
     underDevTopics,
     topicsByKey,
     topicsByPath,
     init,
+    loadCentres,
     loadTeachers,
     loadTopics,
+    addCentre,
+    updateCentre,
+    deleteCentre,
     addTeacher,
     updateTeacher,
     deleteTeacher,

@@ -269,13 +269,13 @@ create policy "centre_update_activities" on public.activities for update using (
 create policy "centre_update_newsletters" on public.newsletters for update using (auth.role() = 'authenticated');
 create policy "centre_update_analyses" on public.program_book_analyses for update using (auth.role() = 'authenticated');
 
--- 4. DELETE: Cannot delete other educators' files; ONLY original creator or Centre Director can delete
-create policy "author_delete_projects" on public.projects for delete using (auth.uid() = user_id or auth.jwt()->>'email' = 'info@pandeykapil.com.np');
-create policy "author_delete_mindmap" on public.mindmap_nodes for delete using (auth.uid() = user_id or auth.jwt()->>'email' = 'info@pandeykapil.com.np');
-create policy "author_delete_stories" on public.learning_stories for delete using (auth.uid() = user_id or auth.jwt()->>'email' = 'info@pandeykapil.com.np');
-create policy "author_delete_activities" on public.activities for delete using (auth.uid() = user_id or auth.jwt()->>'email' = 'info@pandeykapil.com.np');
-create policy "author_delete_newsletters" on public.newsletters for delete using (auth.uid() = user_id or auth.jwt()->>'email' = 'info@pandeykapil.com.np');
-create policy "author_delete_analyses" on public.program_book_analyses for delete using (auth.uid() = user_id or auth.jwt()->>'email' = 'info@pandeykapil.com.np');
+-- 4. DELETE: Child data privacy guarantee; ONLY original creator educator can delete
+create policy "author_delete_projects" on public.projects for delete using (auth.uid() = user_id);
+create policy "author_delete_mindmap" on public.mindmap_nodes for delete using (auth.uid() = user_id);
+create policy "author_delete_stories" on public.learning_stories for delete using (auth.uid() = user_id);
+create policy "author_delete_activities" on public.activities for delete using (auth.uid() = user_id);
+create policy "author_delete_newsletters" on public.newsletters for delete using (auth.uid() = user_id);
+create policy "author_delete_analyses" on public.program_book_analyses for delete using (auth.uid() = user_id);
 
 -- -------------------------------------------------------------------------
 -- `updated_at` triggers for every table.
@@ -448,25 +448,59 @@ create policy "rooms_write" on public.rooms
 drop trigger if exists rooms_updated_at on public.rooms;
 create trigger rooms_updated_at
   before update on public.rooms
+-- -------------------------------------------------------------------------
+-- Multi-Centre Management: Schools / Early Learning Centres Table
+-- -------------------------------------------------------------------------
+create table if not exists public.centres (
+  id uuid primary key default gen_random_uuid(),
+  name text not null unique,
+  code text default '',
+  address text default '',
+  phone text default '',
+  email text default '',
+  notes text default '',
+  is_active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.centres enable row level security;
+drop policy if exists "centres_read" on public.centres;
+drop policy if exists "centres_write" on public.centres;
+create policy "centres_read" on public.centres for select using (true);
+create policy "centres_write" on public.centres for all using (true) with check (true);
+
+drop trigger if exists centres_updated_at on public.centres;
+create trigger centres_updated_at
+  before update on public.centres
   for each row execute function public.set_updated_at();
 
+-- Add centre_name to rooms if not present
+alter table public.rooms add column if not exists centre_name text not null default 'Hadfield Early Learning Centre';
+create index if not exists rooms_centre_name_idx on public.rooms (centre_name);
+
 -- -------------------------------------------------------------------------
--- Initial Seed Data: Service Director, Educators, and Learning Rooms
+-- Initial Seed Data: Centres, Platform Administrator, and Default Rooms
 -- -------------------------------------------------------------------------
+insert into public.centres (name, code, address, notes)
+values
+  ('Hadfield Early Learning Centre', 'HELC', 'Hadfield VIC, Australia', 'Primary inquiry and Reggio Emilia learning community.')
+on conflict (name) do nothing;
+
 insert into public.teacher_access (email, name, role, room, status, is_admin, centre_name, password, notes)
 values
-  ('info@pandeykapil.com.np', 'Kapil Pandey', 'Centre Director', 'All Rooms', 'active', true, 'Hadfield Early Learning Centre', '', 'Service Director and Master Administrator.')
+  ('info@pandeykapil.com.np', 'Kapil Pandey', 'System Administrator', 'No Room (Admin Privacy)', 'active', true, 'Platform Administration', '', 'Platform Super Administrator with complete child privacy separation.')
 on conflict do nothing;
 
-insert into public.rooms (name, description, sort_order, is_active)
+insert into public.rooms (name, centre_name, description, sort_order, is_active)
 values
-  ('Blossoms', 'Nursery & infant exploration room', 0, true),
-  ('Sweet Peas', 'Young toddlers inquiry room', 1, true),
-  ('Chamomiles', 'Toddlers sensory & loose parts room', 2, true),
-  ('Dandelions', 'Kindergarten inquiry & culinary exploration room', 3, true),
-  ('Butter Beans', 'Pre-kindy schema play & language room', 4, true),
-  ('Rosellas', 'Early literacy & creative arts room', 5, true),
-  ('Wattles', 'Nature-inspired STEM room', 6, true)
+  ('Blossoms', 'Hadfield Early Learning Centre', 'Nursery & infant exploration room', 0, true),
+  ('Sweet Peas', 'Hadfield Early Learning Centre', 'Young toddlers inquiry room', 1, true),
+  ('Chamomiles', 'Hadfield Early Learning Centre', 'Toddlers sensory & loose parts room', 2, true),
+  ('Dandelions', 'Hadfield Early Learning Centre', 'Kindergarten inquiry & culinary exploration room', 3, true),
+  ('Butter Beans', 'Hadfield Early Learning Centre', 'Pre-kindy schema play & language room', 4, true),
+  ('Rosellas', 'Hadfield Early Learning Centre', 'Early literacy & creative arts room', 5, true),
+  ('Wattles', 'Hadfield Early Learning Centre', 'Nature-inspired STEM room', 6, true)
 on conflict do nothing;
 
 -- -------------------------------------------------------------------------

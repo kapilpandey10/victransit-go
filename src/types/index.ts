@@ -179,6 +179,7 @@ export interface Profile {
 }
 
 export type TeacherRole =
+  | 'System Administrator'
   | 'Centre Director'
   | 'Educational Leader'
   | 'Early Childhood Teacher'
@@ -215,8 +216,19 @@ export interface TopicModuleStatus extends Persisted {
   affected_rooms?: string[]
 }
 
+export interface CentreRecord extends Persisted {
+  name: string
+  code?: string
+  address?: string
+  phone?: string
+  email?: string
+  notes?: string
+  is_active?: boolean
+}
+
 export interface RoomRecord extends Persisted {
   name: string
+  centre_name?: string
   description?: string
   sort_order?: number
   is_active?: boolean

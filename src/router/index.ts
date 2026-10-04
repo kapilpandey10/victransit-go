@@ -121,9 +121,21 @@ router.beforeEach(async (to, _from, next) => {
     return next('/unauthorized')
   }
 
-  // If authenticated user visits login, redirect to dashboard
+  // If authenticated user visits login, redirect appropriately
   if (to.path === '/login' && auth.isAuthenticated && auth.isAuthorized) {
+    if (auth.isAdmin) return next('/admin')
     return next('/')
+  }
+
+  // Admin Privacy Protection: Admin has zero access to room-level pedagogical child records
+  if (
+    auth.isAdmin &&
+    (to.path === '/' ||
+      ['projects', 'project-workspace', 'learning-stories', 'weekly-wrap-up', 'newsletters', 'program-book'].includes(
+        to.name as string,
+      ))
+  ) {
+    return next('/admin')
   }
 
   next()

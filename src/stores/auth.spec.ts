@@ -20,7 +20,9 @@ describe('useAuthStore', () => {
     expect(auth.isAuthenticated).toBe(true)
     expect(auth.isAdmin).toBe(true)
     expect(auth.isAuthorized).toBe(true)
-    expect(auth.centreName).toBe('Hadfield Early Learning Centre')
+    expect(auth.userRole).toBe('System Administrator')
+    expect(auth.centreName).toBe('Platform Administrator')
+    expect(auth.hasClassroomAccess).toBe(false)
   })
 
   it('identifies standard educator as not admin and assigns their centre group', async () => {
