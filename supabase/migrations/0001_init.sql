@@ -354,12 +354,14 @@ create trigger weekly_wrap_ups_updated_at
 create table if not exists public.teacher_access (
   id uuid primary key default gen_random_uuid(),
   user_id uuid references auth.users (id) on delete set null,
+  centre_name text not null default 'Hadfield Early Learning Centre',
   email text not null,
   name text not null,
   role text not null default 'Educator',
   room text not null default 'All Rooms',
   status text not null default 'active' check (status in ('active', 'invited', 'suspended')),
   is_admin boolean not null default false,
+  password text default 'Educator2026!',
   notes text default '',
   invited_at timestamptz default now(),
   last_active_at timestamptz default now(),
@@ -425,6 +427,7 @@ create trigger topic_statuses_updated_at
 create table if not exists public.rooms (
   id uuid primary key default gen_random_uuid(),
   user_id uuid references auth.users (id) on delete set null,
+  centre_name text not null default 'Hadfield Early Learning Centre',
   name text not null,
   description text default '',
   sort_order int not null default 0,
@@ -448,6 +451,8 @@ create policy "rooms_write" on public.rooms
 drop trigger if exists rooms_updated_at on public.rooms;
 create trigger rooms_updated_at
   before update on public.rooms
+  for each row execute function public.set_updated_at();
+
 -- -------------------------------------------------------------------------
 -- Multi-Centre Management: Schools / Early Learning Centres Table
 -- -------------------------------------------------------------------------
@@ -475,9 +480,22 @@ create trigger centres_updated_at
   before update on public.centres
   for each row execute function public.set_updated_at();
 
--- Add centre_name to rooms if not present
+-- -------------------------------------------------------------------------
+-- Centre Group Scoping & Schema Column Migrations
+-- -------------------------------------------------------------------------
 alter table public.rooms add column if not exists centre_name text not null default 'Hadfield Early Learning Centre';
 create index if not exists rooms_centre_name_idx on public.rooms (centre_name);
+
+alter table public.teacher_access add column if not exists centre_name text not null default 'Hadfield Early Learning Centre';
+alter table public.teacher_access add column if not exists password text default 'Educator2026!';
+create index if not exists teacher_access_centre_name_idx on public.teacher_access (centre_name);
+
+alter table public.projects add column if not exists centre_name text not null default 'Hadfield Early Learning Centre';
+alter table public.learning_stories add column if not exists centre_name text not null default 'Hadfield Early Learning Centre';
+alter table public.activities add column if not exists centre_name text not null default 'Hadfield Early Learning Centre';
+alter table public.newsletters add column if not exists centre_name text not null default 'Hadfield Early Learning Centre';
+alter table public.program_book_analyses add column if not exists centre_name text not null default 'Hadfield Early Learning Centre';
+alter table public.weekly_wrap_ups add column if not exists centre_name text not null default 'Hadfield Early Learning Centre';
 
 -- -------------------------------------------------------------------------
 -- Initial Seed Data: Centres, Platform Administrator, and Default Rooms
@@ -487,31 +505,44 @@ values
   ('Hadfield Early Learning Centre', 'HELC', 'Hadfield VIC, Australia', 'Primary inquiry and Reggio Emilia learning community.')
 on conflict (name) do nothing;
 
+-- Platform Super Admin (Strict privacy shield: No Room, Platform Admin centre)
 insert into public.teacher_access (email, name, role, room, status, is_admin, centre_name, password, notes)
-values
-  ('info@pandeykapil.com.np', 'Kapil Pandey', 'System Administrator', 'No Room (Admin Privacy)', 'active', true, 'Platform Administration', '', 'Platform Super Administrator with complete child privacy separation.')
-on conflict do nothing;
+select 'info@pandeykapil.com.np', 'Kapil Pandey', 'System Administrator', 'No Room (Admin Privacy)', 'active', true, 'Platform Administration', '', 'Platform Super Administrator with complete child privacy separation.'
+where not exists (select 1 from public.teacher_access where email = 'info@pandeykapil.com.np');
+
+update public.teacher_access
+set role = 'System Administrator',
+    is_admin = true,
+    centre_name = 'Platform Administration',
+    room = 'No Room (Admin Privacy)'
+where email = 'info@pandeykapil.com.np';
+
+-- Default Rooms for Hadfield Early Learning Centre
+insert into public.rooms (name, centre_name, description, sort_order, is_active)
+select 'Blossoms', 'Hadfield Early Learning Centre', 'Nursery & infant exploration room', 0, true
+where not exists (select 1 from public.rooms where name = 'Blossoms' and centre_name = 'Hadfield Early Learning Centre');
 
 insert into public.rooms (name, centre_name, description, sort_order, is_active)
-values
-  ('Blossoms', 'Hadfield Early Learning Centre', 'Nursery & infant exploration room', 0, true),
-  ('Sweet Peas', 'Hadfield Early Learning Centre', 'Young toddlers inquiry room', 1, true),
-  ('Chamomiles', 'Hadfield Early Learning Centre', 'Toddlers sensory & loose parts room', 2, true),
-  ('Dandelions', 'Hadfield Early Learning Centre', 'Kindergarten inquiry & culinary exploration room', 3, true),
-  ('Butter Beans', 'Hadfield Early Learning Centre', 'Pre-kindy schema play & language room', 4, true),
-  ('Rosellas', 'Hadfield Early Learning Centre', 'Early literacy & creative arts room', 5, true),
-  ('Wattles', 'Hadfield Early Learning Centre', 'Nature-inspired STEM room', 6, true)
-on conflict do nothing;
+select 'Sweet Peas', 'Hadfield Early Learning Centre', 'Young toddlers inquiry room', 1, true
+where not exists (select 1 from public.rooms where name = 'Sweet Peas' and centre_name = 'Hadfield Early Learning Centre');
 
--- -------------------------------------------------------------------------
--- Centre Group Scoping & Protected Collaboration Schema Migrations
--- -------------------------------------------------------------------------
-alter table public.teacher_access add column if not exists centre_name text not null default 'Hadfield Early Learning Centre';
-alter table public.teacher_access add column if not exists password text default 'Educator2026!';
+insert into public.rooms (name, centre_name, description, sort_order, is_active)
+select 'Chamomiles', 'Hadfield Early Learning Centre', 'Toddlers sensory & loose parts room', 2, true
+where not exists (select 1 from public.rooms where name = 'Chamomiles' and centre_name = 'Hadfield Early Learning Centre');
 
-alter table public.projects add column if not exists centre_name text not null default 'Hadfield Early Learning Centre';
-alter table public.learning_stories add column if not exists centre_name text not null default 'Hadfield Early Learning Centre';
-alter table public.activities add column if not exists centre_name text not null default 'Hadfield Early Learning Centre';
-alter table public.newsletters add column if not exists centre_name text not null default 'Hadfield Early Learning Centre';
-alter table public.program_book_analyses add column if not exists centre_name text not null default 'Hadfield Early Learning Centre';
-alter table public.weekly_wrap_ups add column if not exists centre_name text not null default 'Hadfield Early Learning Centre';
+insert into public.rooms (name, centre_name, description, sort_order, is_active)
+select 'Dandelions', 'Hadfield Early Learning Centre', 'Kindergarten inquiry & culinary exploration room', 3, true
+where not exists (select 1 from public.rooms where name = 'Dandelions' and centre_name = 'Hadfield Early Learning Centre');
+
+insert into public.rooms (name, centre_name, description, sort_order, is_active)
+select 'Butter Beans', 'Hadfield Early Learning Centre', 'Pre-kindy schema play & language room', 4, true
+where not exists (select 1 from public.rooms where name = 'Butter Beans' and centre_name = 'Hadfield Early Learning Centre');
+
+insert into public.rooms (name, centre_name, description, sort_order, is_active)
+select 'Rosellas', 'Hadfield Early Learning Centre', 'Early literacy & creative arts room', 5, true
+where not exists (select 1 from public.rooms where name = 'Rosellas' and centre_name = 'Hadfield Early Learning Centre');
+
+insert into public.rooms (name, centre_name, description, sort_order, is_active)
+select 'Wattles', 'Hadfield Early Learning Centre', 'Nature-inspired STEM room', 6, true
+where not exists (select 1 from public.rooms where name = 'Wattles' and centre_name = 'Hadfield Early Learning Centre');
+
