@@ -9,14 +9,14 @@ beforeEach(() => {
 })
 
 describe('useAuthStore', () => {
-  it('identifies Kapil Pandey as admin', async () => {
+  it('identifies Kapil Pandey as Master Director admin', async () => {
     const admin = useAdminStore()
     await admin.init()
 
     const auth = useAuthStore()
     await auth.init()
 
-    auth.setDemoSession('kapilpandey@hadfield.edu.au')
+    auth.setDemoSession('info@pandeykapil.com.np')
     expect(auth.isAuthenticated).toBe(true)
     expect(auth.isAdmin).toBe(true)
     expect(auth.isAuthorized).toBe(true)
@@ -27,10 +27,19 @@ describe('useAuthStore', () => {
     const admin = useAdminStore()
     await admin.init()
 
+    await admin.addTeacher({
+      email: 'educator.jane@hadfield.edu.au',
+      name: 'Jane',
+      role: 'Educator',
+      room: 'Dandelions',
+      centre_name: 'Hadfield Early Learning Centre',
+      password: 'EducatorPassword1!',
+    })
+
     const auth = useAuthStore()
     await auth.init()
 
-    auth.setDemoSession('lakshmi@hadfield.edu.au')
+    auth.setDemoSession('educator.jane@hadfield.edu.au')
     expect(auth.isAuthenticated).toBe(true)
     expect(auth.isAdmin).toBe(false)
     expect(auth.isAuthorized).toBe(true)
@@ -62,25 +71,34 @@ describe('useAuthStore', () => {
     const admin = useAdminStore()
     await admin.init()
 
+    await admin.addTeacher({
+      email: 'sarah@hadfield.edu.au',
+      name: 'Sarah',
+      role: 'Educator',
+      room: 'Blossoms',
+      centre_name: 'Hadfield Early Learning Centre',
+      password: 'SecureEducator123!',
+    })
+
     const auth = useAuthStore()
     await auth.init()
 
-    // Wrong password for Lakshmi
-    await expect(auth.signIn('lakshmi@hadfield.edu.au', 'WrongPassword!')).rejects.toThrow(
+    // Wrong password for Sarah
+    await expect(auth.signIn('sarah@hadfield.edu.au', 'WrongPassword!')).rejects.toThrow(
       'Incorrect password',
     )
 
-    // Correct password for Lakshmi
-    await auth.signIn('lakshmi@hadfield.edu.au', 'Educator2026!')
+    // Correct password for Sarah
+    await auth.signIn('sarah@hadfield.edu.au', 'SecureEducator123!')
     expect(auth.isAuthenticated).toBe(true)
-    expect(auth.displayName).toBe('Lakshmi')
+    expect(auth.displayName).toBe('Sarah')
   })
 
   it('signs out and clears user state', async () => {
     const auth = useAuthStore()
     await auth.init()
 
-    auth.setDemoSession('kapilpandey@hadfield.edu.au')
+    auth.setDemoSession('info@pandeykapil.com.np')
     expect(auth.isAuthenticated).toBe(true)
 
     await auth.signOut()

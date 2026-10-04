@@ -270,12 +270,12 @@ create policy "centre_update_newsletters" on public.newsletters for update using
 create policy "centre_update_analyses" on public.program_book_analyses for update using (auth.role() = 'authenticated');
 
 -- 4. DELETE: Cannot delete other educators' files; ONLY original creator or Centre Director can delete
-create policy "author_delete_projects" on public.projects for delete using (auth.uid() = user_id or auth.jwt()->>'email' = 'kapilpandey@hadfield.edu.au');
-create policy "author_delete_mindmap" on public.mindmap_nodes for delete using (auth.uid() = user_id or auth.jwt()->>'email' = 'kapilpandey@hadfield.edu.au');
-create policy "author_delete_stories" on public.learning_stories for delete using (auth.uid() = user_id or auth.jwt()->>'email' = 'kapilpandey@hadfield.edu.au');
-create policy "author_delete_activities" on public.activities for delete using (auth.uid() = user_id or auth.jwt()->>'email' = 'kapilpandey@hadfield.edu.au');
-create policy "author_delete_newsletters" on public.newsletters for delete using (auth.uid() = user_id or auth.jwt()->>'email' = 'kapilpandey@hadfield.edu.au');
-create policy "author_delete_analyses" on public.program_book_analyses for delete using (auth.uid() = user_id or auth.jwt()->>'email' = 'kapilpandey@hadfield.edu.au');
+create policy "author_delete_projects" on public.projects for delete using (auth.uid() = user_id or auth.jwt()->>'email' = 'info@pandeykapil.com.np');
+create policy "author_delete_mindmap" on public.mindmap_nodes for delete using (auth.uid() = user_id or auth.jwt()->>'email' = 'info@pandeykapil.com.np');
+create policy "author_delete_stories" on public.learning_stories for delete using (auth.uid() = user_id or auth.jwt()->>'email' = 'info@pandeykapil.com.np');
+create policy "author_delete_activities" on public.activities for delete using (auth.uid() = user_id or auth.jwt()->>'email' = 'info@pandeykapil.com.np');
+create policy "author_delete_newsletters" on public.newsletters for delete using (auth.uid() = user_id or auth.jwt()->>'email' = 'info@pandeykapil.com.np');
+create policy "author_delete_analyses" on public.program_book_analyses for delete using (auth.uid() = user_id or auth.jwt()->>'email' = 'info@pandeykapil.com.np');
 
 -- -------------------------------------------------------------------------
 -- `updated_at` triggers for every table.
@@ -341,7 +341,7 @@ drop policy if exists "author_delete_wrap_ups" on public.weekly_wrap_ups;
 create policy "centre_select_wrap_ups" on public.weekly_wrap_ups for select using (auth.role() = 'authenticated');
 create policy "centre_insert_wrap_ups" on public.weekly_wrap_ups for insert with check (auth.role() = 'authenticated');
 create policy "centre_update_wrap_ups" on public.weekly_wrap_ups for update using (auth.role() = 'authenticated');
-create policy "author_delete_wrap_ups" on public.weekly_wrap_ups for delete using (auth.uid() = user_id or auth.jwt()->>'email' = 'kapilpandey@hadfield.edu.au');
+create policy "author_delete_wrap_ups" on public.weekly_wrap_ups for delete using (auth.uid() = user_id or auth.jwt()->>'email' = 'info@pandeykapil.com.np');
 
 drop trigger if exists weekly_wrap_ups_updated_at on public.weekly_wrap_ups;
 create trigger weekly_wrap_ups_updated_at
@@ -455,12 +455,7 @@ create trigger rooms_updated_at
 -- -------------------------------------------------------------------------
 insert into public.teacher_access (email, name, role, room, status, is_admin, centre_name, password, notes)
 values
-  ('kapilpandey@hadfield.edu.au', 'Kapil Pandey', 'Centre Director', 'All Rooms', 'active', true, 'Hadfield Early Learning Centre', 'password123', 'Service Director and System Administrator.'),
-  ('jean@hadfield.edu.au', 'Jean', 'Educational Leader', 'All Rooms', 'active', false, 'Hadfield Early Learning Centre', 'Educator2026!', 'Curriculum oversight, pedagogical reflection, and educator coaching.'),
-  ('lakshmi@hadfield.edu.au', 'Lakshmi', 'Early Childhood Teacher', 'Dandelions', 'active', false, 'Hadfield Early Learning Centre', 'Educator2026!', 'Funded Kindergarten program lead and STEM investigations.'),
-  ('kelly.goodsir@hadfield.edu.au', 'Kelly Goodsir', 'Room Leader', 'Butter Beans', 'active', false, 'Hadfield Early Learning Centre', 'Educator2026!', 'Toddler room inquiry and play schema documentation.'),
-  ('nikki@hadfield.edu.au', 'Nikki', 'Early Childhood Teacher', 'Rosellas', 'invited', false, 'Hadfield Early Learning Centre', 'Educator2026!', 'Pre-kindergarten early literacy and transitions.'),
-  ('sarah.j@hadfield.edu.au', 'Sarah Jenkins', 'Educator', 'Blossoms', 'active', false, 'Hadfield Early Learning Centre', 'Educator2026!', 'Nursery infant sensory play and primary caregiving.')
+  ('info@pandeykapil.com.np', 'Kapil Pandey', 'Centre Director', 'All Rooms', 'active', true, 'Hadfield Early Learning Centre', '', 'Service Director and Master Administrator.')
 on conflict do nothing;
 
 insert into public.rooms (name, description, sort_order, is_active)

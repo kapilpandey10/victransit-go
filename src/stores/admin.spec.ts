@@ -8,19 +8,18 @@ beforeEach(() => {
 })
 
 describe('useAdminStore', () => {
-  it('initialises with default teachers, centre groups, and topics', async () => {
+  it('initialises with Master Director, centre groups, and topics', async () => {
     const admin = useAdminStore()
     await admin.init()
 
-    expect(admin.teachers.length).toBeGreaterThanOrEqual(6)
+    expect(admin.teachers.length).toBeGreaterThanOrEqual(1)
     expect(admin.topicStatuses.length).toBeGreaterThanOrEqual(8)
     expect(admin.centreGroups).toContain('Hadfield Early Learning Centre')
 
-    const kapil = admin.teachers.find(t => t.email === 'kapilpandey@hadfield.edu.au')
+    const kapil = admin.teachers.find(t => t.email === 'info@pandeykapil.com.np')
     expect(kapil).toBeDefined()
     expect(kapil?.role).toBe('Centre Director')
     expect(kapil?.centre_name).toBe('Hadfield Early Learning Centre')
-    expect(kapil?.password).toBe('password123')
 
     const storiesTopic = admin.getTopic('learning-stories')
     expect(storiesTopic).toBeDefined()

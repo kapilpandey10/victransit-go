@@ -16,6 +16,9 @@ const password = ref('')
 const showPassword = ref(false)
 const loading = ref(false)
 const useOtp = ref(false)
+const showForgotModal = ref(false)
+const forgotEmail = ref('')
+const forgotLoading = ref(false)
 const errorMessage = ref<string | null>(null)
 
 onMounted(async () => {
@@ -55,9 +58,26 @@ async function handleLogin() {
   }
 }
 
-function fillDemoAccount(userEmail: string, userPass: string) {
-  email.value = userEmail
-  password.value = userPass
+async function handleForgotPassword() {
+  const norm = forgotEmail.value.trim().toLowerCase()
+  if (!norm) {
+    ui.showToast('Please enter your email address.', 'error')
+    return
+  }
+  forgotLoading.value = true
+  try {
+    await auth.resetPasswordForEmail(norm)
+    ui.showToast(`Password reset link sent to ${norm}! Check your email inbox.`, 'success')
+    showForgotModal.value = false
+  } catch (err) {
+    ui.showToast((err as Error).message, 'error')
+  } finally {
+    forgotLoading.value = false
+  }
+}
+
+function fillMasterAccount() {
+  email.value = 'info@pandeykapil.com.np'
   useOtp.value = false
 }
 </script>
@@ -85,7 +105,7 @@ function fillDemoAccount(userEmail: string, userPass: string) {
           <span>Master-Controlled Access Only</span>
         </div>
         <p class="leading-relaxed text-slate-300">
-          Public self-registration is disabled. Only the Master Administrator (<span class="text-amber-300 font-semibold">Kapil Pandey</span>) can add educators to a Centre group.
+          Public self-registration is disabled. Only Master Administrator Kapil Pandey (<span class="text-amber-300 font-semibold font-mono">info@pandeykapil.com.np</span>) can add educators to a Centre group.
         </p>
       </div>
 
@@ -101,37 +121,26 @@ function fillDemoAccount(userEmail: string, userPass: string) {
         </div>
       </div>
 
-      <!-- Quick Demo Login Presets -->
-      <div class="rounded-xl bg-slate-800/80 border border-slate-700/80 p-3 text-xs space-y-2">
-        <p class="font-bold text-slate-300 flex items-center gap-1.5 text-[11px] uppercase tracking-wider">
-          <span>⚡</span>
-          <span>Quick Login Credentials</span>
-        </p>
-        <div class="grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            class="text-left p-2 rounded-lg bg-slate-900/80 hover:bg-slate-700/80 border border-slate-700 transition"
-            @click="fillDemoAccount('kapilpandey@hadfield.edu.au', 'password123')"
-          >
-            <p class="font-bold text-rose-400 truncate">Kapil Pandey</p>
-            <p class="text-[10px] text-slate-400">Master / Director</p>
-          </button>
-          <button
-            type="button"
-            class="text-left p-2 rounded-lg bg-slate-900/80 hover:bg-slate-700/80 border border-slate-700 transition"
-            @click="fillDemoAccount('lakshmi@hadfield.edu.au', 'Educator2026!')"
-          >
-            <p class="font-bold text-emerald-400 truncate">Lakshmi</p>
-            <p class="text-[10px] text-slate-400">Educator (Dandelions)</p>
-          </button>
+      <!-- Master Quick Login Preset -->
+      <div class="rounded-xl bg-slate-800/80 border border-slate-700/80 p-3 text-xs flex items-center justify-between">
+        <div>
+          <p class="font-bold text-slate-200">👑 Master Administrator</p>
+          <p class="text-[11px] font-mono text-slate-400">info@pandeykapil.com.np</p>
         </div>
+        <button
+          type="button"
+          class="btn-secondary text-[11px] py-1 px-2.5 font-bold"
+          @click="fillMasterAccount"
+        >
+          Fill Master
+        </button>
       </div>
 
       <!-- Login Form -->
       <form class="space-y-4" @submit.prevent="handleLogin">
         <div class="space-y-1">
           <label class="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-            Educator Email Address
+            Email Address
           </label>
           <input
             v-model="email"
@@ -151,9 +160,9 @@ function fillDemoAccount(userEmail: string, userPass: string) {
             <button
               type="button"
               class="text-xs text-brand-400 hover:underline"
-              @click="useOtp = true"
+              @click="showForgotModal = true; forgotEmail = email"
             >
-              Use magic link instead
+              Forgot password?
             </button>
           </div>
           <div class="relative">
@@ -175,13 +184,13 @@ function fillDemoAccount(userEmail: string, userPass: string) {
           </div>
         </div>
 
-        <div v-else class="text-right">
+        <div class="flex items-center justify-between pt-1">
           <button
             type="button"
             class="text-xs text-brand-400 hover:underline"
-            @click="useOtp = false"
+            @click="useOtp = !useOtp"
           >
-            Use password instead
+            {{ useOtp ? 'Use password instead' : 'Use magic login link instead' }}
           </button>
         </div>
 
@@ -199,8 +208,59 @@ function fillDemoAccount(userEmail: string, userPass: string) {
       <!-- Security Guidance Footer -->
       <div class="border-t border-slate-800 pt-4 text-center">
         <p class="text-[11px] text-slate-400 leading-relaxed">
-          Need access or password assistance? Only Centre Director Kapil Pandey can add educators to a Centre Group.
+          Need educator access? Only Master Director Kapil Pandey (<span class="font-mono text-slate-300">info@pandeykapil.com.np</span>) can add educators to a Centre Group.
         </p>
+      </div>
+    </div>
+
+    <!-- Supabase Forgot Password Modal -->
+    <div
+      v-if="showForgotModal"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-sm"
+      @click.self="showForgotModal = false"
+    >
+      <div class="card max-w-sm w-full p-6 space-y-4 bg-slate-900 border-slate-800 text-slate-100 shadow-lift">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+          <h3 class="font-display font-bold text-base flex items-center gap-2">
+            <span>🔑</span>
+            <span>Reset Password via Supabase</span>
+          </h3>
+          <button
+            type="button"
+            class="text-slate-400 hover:text-slate-200"
+            @click="showForgotModal = false"
+          >
+            ✕
+          </button>
+        </div>
+        <p class="text-xs text-slate-300 leading-relaxed">
+          Enter your registered email address. Supabase Auth will send a secure password reset link directly to your inbox.
+        </p>
+        <form class="space-y-3" @submit.prevent="handleForgotPassword">
+          <input
+            v-model="forgotEmail"
+            type="email"
+            required
+            placeholder="educator@hadfield.edu.au"
+            class="input w-full bg-slate-800 border-slate-700 text-white"
+          />
+          <div class="flex items-center justify-end gap-2 pt-2">
+            <button
+              type="button"
+              class="btn-ghost text-xs"
+              @click="showForgotModal = false"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              class="btn-primary text-xs font-bold"
+              :disabled="forgotLoading"
+            >
+              {{ forgotLoading ? 'Sending link…' : 'Send Reset Email' }}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   </div>

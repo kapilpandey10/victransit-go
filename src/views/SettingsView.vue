@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
-import { AI_MODELS, aiStatus } from '@/services/ai'
+import { AI_MODELS } from '@/services/ai'
 import { listLocalKeys, removeLocal } from '@/services/localStore'
-import { isSupabaseConfigured } from '@/services/supabase'
 import {
   DEFAULT_VOICE_SETTINGS,
   loadPuter,
@@ -52,7 +51,6 @@ async function togglePuter(enabled: boolean) {
   persistVoice()
 }
 
-const configured = computed(() => isSupabaseConfigured)
 const localKeyCount = computed(() => listLocalKeys().length)
 
 const profileForm = reactive({
@@ -63,35 +61,38 @@ const profileForm = reactive({
 })
 
 const saving = ref(false)
-const email = ref('')
-const password = ref('')
-const fullName = ref('')
-const authError = ref<string | null>(null)
-const authBusy = ref(false)
+const resettingPassword = ref(false)
 
 async function saveProfile() {
   saving.value = true
   try {
-    await auth.saveProfile({ ...profileForm })
+    await auth.saveProfile({
+      full_name: profileForm.full_name,
+      centre_name: profileForm.centre_name,
+      room: profileForm.room,
+      role: profileForm.role,
+    })
     ui.showToast('Profile saved', 'success')
-  } catch (e) {
-    ui.showToast((e as Error).message, 'error')
+  } catch (err) {
+    ui.showToast((err as Error).message, 'error')
   } finally {
     saving.value = false
   }
 }
 
-async function authAction(kind: 'in' | 'up') {
-  authBusy.value = true
-  authError.value = null
+async function handleSendPasswordReset() {
+  if (!auth.userEmail) {
+    ui.showToast('No signed-in email found.', 'error')
+    return
+  }
+  resettingPassword.value = true
   try {
-    if (kind === 'in') await auth.signIn(email.value, password.value)
-    else await auth.signUp(email.value, password.value, fullName.value)
-    ui.showToast(kind === 'in' ? 'Signed in' : 'Account created — check your email', 'success')
-  } catch (e) {
-    authError.value = (e as Error).message
+    await auth.resetPasswordForEmail(auth.userEmail)
+    ui.showToast(`Password reset email sent to ${auth.userEmail}! Check your inbox.`, 'success')
+  } catch (err) {
+    ui.showToast((err as Error).message, 'error')
   } finally {
-    authBusy.value = false
+    resettingPassword.value = false
   }
 }
 
@@ -154,55 +155,69 @@ function clearLocalData() {
         </button>
       </section>
 
-      <section class="card space-y-3">
-        <h2 class="font-display text-base font-extrabold">🔐 Cloud Account Authentication</h2>
-        <p class="text-xs text-slate-500 dark:text-slate-400">
-          Status:
-          <span
-            :class="
-              configured
-                ? 'font-bold text-emerald-600'
-                : aiStatus.mode === 'direct'
-                  ? 'font-bold text-sky-600'
-                  : 'font-bold text-amber-600'
-            "
-          >
-            {{
-              configured
-                ? 'Supabase Cloud Connected — Multi-user authentication & PostgreSQL database active.'
-                : 'Local Demo Mode — Connect your Supabase anon key above to activate cloud accounts.'
-            }}
-          </span>
-        </p>
-
-        <div v-if="configured" class="space-y-3">
-          <div class="grid gap-3">
-            <div>
-              <label class="field-label" for="auth-email">Educator Email</label>
-              <input id="auth-email" v-model="email" type="email" class="input" placeholder="name@hadfield.edu.au" />
-            </div>
-            <div>
-              <label class="field-label" for="auth-password">Password</label>
-              <input id="auth-password" v-model="password" type="password" class="input" placeholder="••••••••" />
-            </div>
-            <div>
-              <label class="field-label" for="auth-name">Name (for sign-up)</label>
-              <input id="auth-name" v-model="fullName" class="input" placeholder="Full name" />
-            </div>
-            <p v-if="authError" class="text-xs text-rose-600">{{ authError }}</p>
-            <div class="flex gap-2">
-              <button class="btn-primary flex-1" :disabled="authBusy" @click="authAction('in')">Sign in</button>
-              <button class="btn-secondary flex-1" :disabled="authBusy" @click="authAction('up')">Sign up</button>
-              <button v-if="auth.isAuthenticated" class="btn-ghost" @click="auth.signOut()">Sign Out</button>
-            </div>
+      <!-- Account & Security / Supabase Password Reset -->
+      <section class="card space-y-4">
+        <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+          <div>
+            <h2 class="font-display text-base font-extrabold flex items-center gap-2">
+              <span>🔐</span>
+              <span>Account & Security</span>
+            </h2>
+            <p class="text-xs text-slate-500">Supabase Cloud Authentication & Password Reset</p>
           </div>
+          <span
+            class="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider"
+            :class="auth.isAdmin ? 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300' : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'"
+          >
+            {{ auth.isAdmin ? '👑 Master Director' : '👩‍🏫 Educator' }}
+          </span>
         </div>
 
-        <div v-else class="space-y-2 text-xs text-slate-600 dark:text-slate-300">
-          <p>
-            When Supabase is not connected, the app uses on-device local storage.
-            To allow educators to log in with their own passwords and synchronize inquiry documentation across iPads and computers, connect your Supabase project in the card above.
-          </p>
+        <div class="space-y-3 text-xs">
+          <div class="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="text-slate-500 font-bold uppercase text-[10px] tracking-wider">Signed-In Account</span>
+              <span class="font-mono text-slate-800 dark:text-slate-200 font-bold">{{ auth.userEmail || 'Local Session' }}</span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-slate-500 font-bold uppercase text-[10px] tracking-wider">Assigned Centre Group</span>
+              <span class="font-bold text-brand-600 dark:text-brand-400">{{ auth.centreName }}</span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-slate-500 font-bold uppercase text-[10px] tracking-wider">Assigned Room</span>
+              <span class="font-semibold text-slate-700 dark:text-slate-300">{{ auth.profile?.room || 'All Rooms' }}</span>
+            </div>
+          </div>
+
+          <div class="p-3.5 rounded-xl border border-brand-500/20 bg-brand-500/10 space-y-2">
+            <p class="font-bold text-slate-800 dark:text-slate-200 text-xs flex items-center gap-1.5">
+              <span>✉️</span>
+              <span>Supabase Password Reset</span>
+            </p>
+            <p class="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+              Educators can reset their password anytime. Clicking below triggers an official Supabase recovery email sent directly to <strong>{{ auth.userEmail }}</strong>.
+            </p>
+            <button
+              type="button"
+              class="btn-secondary text-xs w-full font-bold flex items-center justify-center gap-1.5 py-2"
+              :disabled="resettingPassword"
+              @click="handleSendPasswordReset"
+            >
+              <span>🔑</span>
+              <span>{{ resettingPassword ? 'Sending Supabase Reset Link…' : 'Send Password Reset Email' }}</span>
+            </button>
+          </div>
+
+          <div class="flex items-center justify-between pt-2">
+            <span class="text-[11px] text-slate-400">Master account: info@pandeykapil.com.np</span>
+            <button
+              type="button"
+              class="btn-ghost text-xs text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 font-bold"
+              @click="auth.signOut()"
+            >
+              🚪 Sign Out
+            </button>
+          </div>
         </div>
       </section>
 

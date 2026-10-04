@@ -9,7 +9,7 @@ import type { Profile } from '@/types'
 
 const PROFILE_KEY = 'profile'
 const DEMO_EMAIL_KEY = 'hadfield:v1:demo_user_email'
-export const ADMIN_EMAIL = 'kapilpandey@hadfield.edu.au'
+export const ADMIN_EMAIL = 'info@pandeykapil.com.np'
 
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<User | null>(null)
@@ -70,7 +70,7 @@ export const useAuthStore = defineStore('auth', () => {
 
       if (!isSupabaseConfigured) {
         // Demo Mode: Check if a user was previously logged in
-        const savedEmail = localStorage.getItem(DEMO_EMAIL_KEY) || 'kapilpandey@hadfield.edu.au'
+        const savedEmail = localStorage.getItem(DEMO_EMAIL_KEY) || 'info@pandeykapil.com.np'
         if (savedEmail) {
           setDemoSession(savedEmail)
         } else {
@@ -116,8 +116,8 @@ export const useAuthStore = defineStore('auth', () => {
     const norm = email.trim().toLowerCase()
     const teacher = admin.getTeacherByEmail(norm)
 
-    const name = teacher?.name || (norm === 'kapilpandey@hadfield.edu.au' ? 'Kapil Pandey' : norm.split('@')[0])
-    const role = teacher?.role || (norm === 'kapilpandey@hadfield.edu.au' ? 'Centre Director' : 'Educator')
+    const name = teacher?.name || (norm === 'info@pandeykapil.com.np' ? 'Kapil Pandey' : norm.split('@')[0])
+    const role = teacher?.role || (norm === 'info@pandeykapil.com.np' ? 'Centre Director' : 'Educator')
     const room = teacher?.room || 'All Rooms'
     const centre = teacher?.centre_name || 'Hadfield Early Learning Centre'
 
@@ -213,21 +213,21 @@ export const useAuthStore = defineStore('auth', () => {
     const norm = email.trim().toLowerCase()
     if (!norm) throw new Error('Please enter your email address.')
 
-    // Whitelist check: only Kapil Pandey or educators added to a centre group by Kapil are permitted
-    if (!admin.isEmailAuthorized(norm) && norm !== 'kapilpandey@hadfield.edu.au') {
+    // Whitelist check: only info@pandeykapil.com.np or educators added to a centre group by Kapil are permitted
+    if (!admin.isEmailAuthorized(norm) && norm !== 'info@pandeykapil.com.np') {
       throw new Error(
-        `Access Denied: The email "${norm}" is not registered on the educator roster. Self-signup is disabled; only the Master Administrator (Kapil Pandey) can add educators to a Centre group.`,
+        `Access Denied: The email "${norm}" is not registered on the educator roster. Self-signup is disabled; only the Master Administrator (info@pandeykapil.com.np) can add educators to a Centre group.`,
       )
     }
 
     const teacher = admin.getTeacherByEmail(norm)
 
-    // Password verification against Master-assigned password
+    // Password verification against Master-assigned password if configured
     if (teacher?.password && password) {
       if (teacher.password !== password) {
-        throw new Error('Incorrect password. Please verify credentials with Centre Director Kapil Pandey.')
+        throw new Error('Incorrect password. Please verify credentials with Centre Director Kapil Pandey or use the password reset link.')
       }
-    } else if (norm === 'kapilpandey@hadfield.edu.au' && password) {
+    } else if (norm === 'info@pandeykapil.com.np' && password) {
       if (teacher?.password && teacher.password !== password && password !== 'password123') {
         throw new Error('Incorrect password for Centre Director account.')
       }
@@ -269,9 +269,9 @@ export const useAuthStore = defineStore('auth', () => {
     const norm = email.trim().toLowerCase()
     if (!norm) throw new Error('Please enter your email address.')
 
-    if (!admin.isEmailAuthorized(norm) && norm !== 'kapilpandey@hadfield.edu.au') {
+    if (!admin.isEmailAuthorized(norm) && norm !== 'info@pandeykapil.com.np') {
       throw new Error(
-        `Access Pending: The email "${norm}" has not been authorized by the Centre Director. Please contact Hadfield ELC leadership.`,
+        `Access Pending: The email "${norm}" has not been authorized by Centre Director Kapil Pandey (info@pandeykapil.com.np).`,
       )
     }
 
@@ -329,6 +329,20 @@ export const useAuthStore = defineStore('auth', () => {
     void init()
   }
 
+  async function resetPasswordForEmail(targetEmail: string) {
+    const norm = targetEmail.trim().toLowerCase()
+    if (!norm) throw new Error('Please enter your email address.')
+    const sb = trySupabase()
+    if (!sb) {
+      throw new Error('Supabase is not configured.')
+    }
+    const { error } = await sb.auth.resetPasswordForEmail(norm, {
+      redirectTo: `${window.location.origin}/settings`,
+    })
+    if (error) throw new Error(error.message)
+    return true
+  }
+
   return {
     user,
     profile,
@@ -351,6 +365,7 @@ export const useAuthStore = defineStore('auth', () => {
     signIn,
     signInWithOtp,
     signInWithGoogle,
+    resetPasswordForEmail,
     signOut,
     resetDemoData,
     setDemoSession,

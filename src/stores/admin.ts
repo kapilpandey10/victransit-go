@@ -116,70 +116,15 @@ export const DEFAULT_TEACHERS: Array<{
   notes: string
 }> = [
   {
-    email: 'kapilpandey@hadfield.edu.au',
+    email: 'info@pandeykapil.com.np',
     name: 'Kapil Pandey',
     role: 'Centre Director',
     room: 'All Rooms',
     status: 'active',
     centre_name: 'Hadfield Early Learning Centre',
-    password: 'password123',
+    password: '',
     is_admin: true,
-    notes: 'Service Director and System Administrator.',
-  },
-  {
-    email: 'jean@hadfield.edu.au',
-    name: 'Jean',
-    role: 'Educational Leader',
-    room: 'All Rooms',
-    status: 'active',
-    centre_name: 'Hadfield Early Learning Centre',
-    password: 'Educator2026!',
-    is_admin: false,
-    notes: 'Curriculum oversight, pedagogical reflection, and educator coaching.',
-  },
-  {
-    email: 'lakshmi@hadfield.edu.au',
-    name: 'Lakshmi',
-    role: 'Early Childhood Teacher',
-    room: 'Dandelions',
-    status: 'active',
-    centre_name: 'Hadfield Early Learning Centre',
-    password: 'Educator2026!',
-    is_admin: false,
-    notes: 'Funded Kindergarten program lead and STEM investigations.',
-  },
-  {
-    email: 'kelly.goodsir@hadfield.edu.au',
-    name: 'Kelly Goodsir',
-    role: 'Room Leader',
-    room: 'Butter Beans',
-    status: 'active',
-    centre_name: 'Hadfield Early Learning Centre',
-    password: 'Educator2026!',
-    is_admin: false,
-    notes: 'Toddler room inquiry and play schema documentation.',
-  },
-  {
-    email: 'nikki@hadfield.edu.au',
-    name: 'Nikki',
-    role: 'Early Childhood Teacher',
-    room: 'Rosellas',
-    status: 'invited',
-    centre_name: 'Hadfield Early Learning Centre',
-    password: 'Educator2026!',
-    is_admin: false,
-    notes: 'Pre-kindergarten early literacy and transitions.',
-  },
-  {
-    email: 'sarah.j@hadfield.edu.au',
-    name: 'Sarah Jenkins',
-    role: 'Educator',
-    room: 'Blossoms',
-    status: 'active',
-    centre_name: 'Hadfield Early Learning Centre',
-    password: 'Educator2026!',
-    is_admin: false,
-    notes: 'Nursery infant sensory play and primary caregiving.',
+    notes: 'Master Administrator and Service Director.',
   },
 ]
 
@@ -249,27 +194,20 @@ export const useAdminStore = defineStore('admin', () => {
   async function loadTeachers() {
     try {
       const list = await teacherRepo.list(scope(), { orderBy: 'created_at', ascending: true })
-      if (list.length === 0) {
-        // Try remote seed if database allows it
-        try {
-          const seeded: TeacherAccess[] = []
-          for (const t of DEFAULT_TEACHERS) {
-            const item = await teacherRepo.create(scope(), {
-              ...t,
-              invited_at: new Date().toISOString(),
-              last_active_at: t.status === 'active' ? new Date().toISOString() : undefined,
-            })
-            seeded.push(item)
-          }
-          if (seeded.length > 0) teachers.value = seeded
-        } catch {
-          // If RLS prevents anonymous seeding, retain built-in defaults
-        }
-      } else {
+      if (list.length > 0) {
         teachers.value = list
+      } else {
+        // If database is empty, display only the Master Director
+        teachers.value = DEFAULT_TEACHERS.map((t, idx) => ({
+          ...t,
+          id: `master-director-${idx}`,
+          user_id: '',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }))
       }
     } catch {
-      // Retain defaults if remote query fails
+      // Retain Master Director default if remote query fails
     }
   }
 
@@ -445,7 +383,7 @@ export const useAdminStore = defineStore('admin', () => {
   function isEmailAdmin(email: string): boolean {
     const norm = email.trim().toLowerCase()
     if (!norm) return false
-    if (norm === 'kapilpandey@hadfield.edu.au') return true
+    if (norm === 'info@pandeykapil.com.np') return true
     const teacher = getTeacherByEmail(norm)
     if (!teacher) return false
     return Boolean(teacher.is_admin || teacher.role === 'Centre Director')
@@ -454,7 +392,7 @@ export const useAdminStore = defineStore('admin', () => {
   function isEmailAuthorized(email: string): boolean {
     const norm = email.trim().toLowerCase()
     if (!norm) return false
-    if (norm === 'kapilpandey@hadfield.edu.au') return true
+    if (norm === 'info@pandeykapil.com.np') return true
     const teacher = getTeacherByEmail(norm)
     if (!teacher) return false
     return teacher.status === 'active' || teacher.status === 'invited'

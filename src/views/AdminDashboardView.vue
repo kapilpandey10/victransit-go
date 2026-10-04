@@ -493,7 +493,7 @@ async function handleSaveTopicNotes(topic: TopicModuleStatus) {
               Master Access & Centre Group Isolation
             </p>
             <p class="text-slate-600 dark:text-slate-300 leading-relaxed">
-              Public self-signup is disabled. Only Master Director <strong class="text-brand-600 dark:text-brand-400">Kapil Pandey</strong> can register educators into a Centre Group.
+              Public self-signup is disabled. Only Master Director <strong class="text-brand-600 dark:text-brand-400">Kapil Pandey (info@pandeykapil.com.np)</strong> can register educators into a Centre Group.
               Educators in each group can only view documentation within their assigned Centre. Within their group, educators can edit and compile together with AI, while deletions are strictly protected.
             </p>
           </div>

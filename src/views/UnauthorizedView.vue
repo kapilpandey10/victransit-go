@@ -44,8 +44,8 @@ async function handleSignOut() {
         </p>
         <p class="leading-relaxed">
           Contact Centre Director <strong>Kapil Pandey</strong> at
-          <a href="mailto:kapilpandey@hadfield.edu.au" class="text-brand-400 underline font-bold">
-            kapilpandey@hadfield.edu.au
+          <a href="mailto:info@pandeykapil.com.np" class="text-brand-400 underline font-bold">
+            info@pandeykapil.com.np
           </a>
           to grant login authorization for your room or role.
         </p>
