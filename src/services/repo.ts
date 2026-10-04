@@ -65,6 +65,11 @@ export interface RepoOptions {
   centreShared?: boolean
 }
 
+export function getActiveCentreName(): string {
+  const profile = readLocal<{ centre_name?: string } | null>('profile', null)
+  return profile?.centre_name?.trim() || 'Hadfield Early Learning Centre'
+}
+
 export function createRepo<T extends BaseRecord>(table: string, opts: RepoOptions = {}) {
   const isGlobal = Boolean(opts.isGlobal)
   const isCentreShared = Boolean(opts.centreShared)
@@ -72,6 +77,7 @@ export function createRepo<T extends BaseRecord>(table: string, opts: RepoOption
 
   return {
     async list(userId: string, options: QueryOptions = {}): Promise<T[]> {
+      const activeCentre = getActiveCentreName().toLowerCase().trim()
       const sb = trySupabase()
       if (sb) {
         let q = sb.from(table).select('*')
@@ -87,12 +93,26 @@ export function createRepo<T extends BaseRecord>(table: string, opts: RepoOption
         if (options.limit) q = q.limit(options.limit)
         const { data, error } = await q
         if (error) throw new Error(`${table}: ${error.message}`)
-        return (data ?? []) as T[]
+        let result = (data ?? []) as T[]
+        if (isCentreShared) {
+          result = result.filter(r => {
+            const rowCentre = String(col(r, 'centre_name') || 'Hadfield Early Learning Centre').toLowerCase().trim()
+            return rowCentre === activeCentre
+          })
+        }
+        return result
       }
 
       let rows = isShared
         ? localAll<T>(table)
         : localAll<T>(table).filter(r => r.user_id === userId)
+
+      if (isCentreShared) {
+        rows = rows.filter(r => {
+          const rowCentre = String(col(r, 'centre_name') || 'Hadfield Early Learning Centre').toLowerCase().trim()
+          return rowCentre === activeCentre
+        })
+      }
 
       if (options.where) {
         const where = options.where
@@ -110,6 +130,7 @@ export function createRepo<T extends BaseRecord>(table: string, opts: RepoOption
     },
 
     async get(userId: string, id: string): Promise<T | null> {
+      const activeCentre = getActiveCentreName().toLowerCase().trim()
       const sb = trySupabase()
       if (sb) {
         let q = sb.from(table).select('*').eq('id', id)
@@ -118,12 +139,21 @@ export function createRepo<T extends BaseRecord>(table: string, opts: RepoOption
         }
         const { data, error } = await q.maybeSingle()
         if (error) throw new Error(`${table}: ${error.message}`)
-        return (data as T) ?? null
+        if (!data) return null
+        if (isCentreShared) {
+          const rowCentre = String(col(data, 'centre_name') || 'Hadfield Early Learning Centre').toLowerCase().trim()
+          if (rowCentre !== activeCentre) return null
+        }
+        return (data as T)
       }
-      return (
+      const found =
         localAll<T>(table).find(r => r.id === id && (isShared || r.user_id === userId)) ??
         null
-      )
+      if (found && isCentreShared) {
+        const rowCentre = String(col(found, 'centre_name') || 'Hadfield Early Learning Centre').toLowerCase().trim()
+        if (rowCentre !== activeCentre) return null
+      }
+      return found
     },
 
     async create(
@@ -135,9 +165,13 @@ export function createRepo<T extends BaseRecord>(table: string, opts: RepoOption
       const isUuid =
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)
 
+      const activeCentre = getActiveCentreName()
       if (sb) {
         const insertRow: Record<string, unknown> = {
           ...(payload as Record<string, unknown>),
+        }
+        if (isCentreShared && !insertRow.centre_name) {
+          insertRow.centre_name = activeCentre
         }
         if (providedId) insertRow.id = providedId
         if (isUuid) {
@@ -146,17 +180,35 @@ export function createRepo<T extends BaseRecord>(table: string, opts: RepoOption
           insertRow.user_id = userId
         }
 
-        const { data, error } = await sb
-          .from(table)
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          .insert(insertRow as never)
-          .select('*')
-          .single()
-        if (error) throw new Error(`${table}: ${error.message}`)
-        return data as T
+        try {
+          const { data, error } = await sb
+            .from(table)
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            .insert(insertRow as never)
+            .select('*')
+            .single()
+          if (error) throw error
+          return data as T
+        } catch (err: unknown) {
+          const msg = (err as Error).message || ''
+          if (msg.includes('centre_name')) {
+            const fallbackRow = { ...insertRow }
+            delete fallbackRow.centre_name
+            const { data, error } = await sb
+              .from(table)
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              .insert(fallbackRow as never)
+              .select('*')
+              .single()
+            if (error) throw new Error(`${table}: ${error.message}`)
+            return { ...data, centre_name: activeCentre } as T
+          }
+          throw new Error(`${table}: ${msg}`)
+        }
       }
 
       const row = {
+        centre_name: (payload as Record<string, unknown>).centre_name || activeCentre,
         ...payload,
         id: providedId ?? localId(),
         user_id: userId,

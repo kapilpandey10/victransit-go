@@ -23,7 +23,10 @@ onMounted(async () => {
 // ---------------------------------------------------------------------------
 // Teacher Search & Filtering
 // ---------------------------------------------------------------------------
+// Teacher Search & Filtering
+// ---------------------------------------------------------------------------
 const searchQuery = ref('')
+const filterCentre = ref<string>('all')
 const filterRoom = ref<string>('all')
 const filterStatus = ref<string>('all')
 
@@ -45,8 +48,13 @@ const filteredTeachers = computed(() => {
       !q ||
       t.email.toLowerCase().includes(q) ||
       t.name.toLowerCase().includes(q) ||
+      (t.centre_name || '').toLowerCase().includes(q) ||
       t.role.toLowerCase().includes(q) ||
       t.room.toLowerCase().includes(q)
+
+    const matchesCentre =
+      filterCentre.value === 'all' ||
+      (t.centre_name || 'Hadfield Early Learning Centre') === filterCentre.value
 
     const matchesRoom =
       filterRoom.value === 'all' ||
@@ -54,7 +62,7 @@ const filteredTeachers = computed(() => {
 
     const matchesStatus = filterStatus.value === 'all' || t.status === filterStatus.value
 
-    return matchesSearch && matchesRoom && matchesStatus
+    return matchesSearch && matchesCentre && matchesRoom && matchesStatus
   })
 })
 
@@ -68,6 +76,8 @@ const teacherFormSubmitting = ref(false)
 const teacherForm = reactive({
   email: '',
   name: '',
+  centre_name: 'Hadfield Early Learning Centre',
+  password: 'Educator2026!',
   role: 'Educator' as TeacherRole,
   room: 'All Rooms',
   status: 'active' as TeacherAccessStatus,
@@ -79,6 +89,8 @@ function openAddTeacherModal() {
   editingTeacherId.value = null
   teacherForm.email = ''
   teacherForm.name = ''
+  teacherForm.centre_name = auth.centreName || 'Hadfield Early Learning Centre'
+  teacherForm.password = 'Educator2026!'
   teacherForm.role = 'Educator'
   teacherForm.room = 'All Rooms'
   teacherForm.status = 'active'
@@ -91,6 +103,8 @@ function openEditTeacherModal(teacher: TeacherAccess) {
   editingTeacherId.value = teacher.id
   teacherForm.email = teacher.email
   teacherForm.name = teacher.name
+  teacherForm.centre_name = teacher.centre_name || 'Hadfield Early Learning Centre'
+  teacherForm.password = teacher.password || 'Educator2026!'
   teacherForm.role = teacher.role
   teacherForm.room = teacher.room
   teacherForm.status = teacher.status
@@ -110,6 +124,8 @@ async function handleSaveTeacher() {
       await admin.updateTeacher(editingTeacherId.value, {
         email: teacherForm.email,
         name: teacherForm.name,
+        centre_name: teacherForm.centre_name,
+        password: teacherForm.password,
         role: teacherForm.role,
         room: teacherForm.room,
         status: teacherForm.status,
@@ -121,13 +137,15 @@ async function handleSaveTeacher() {
       await admin.addTeacher({
         email: teacherForm.email,
         name: teacherForm.name,
+        centre_name: teacherForm.centre_name,
+        password: teacherForm.password,
         role: teacherForm.role,
         room: teacherForm.room,
         status: teacherForm.status,
         is_admin: teacherForm.is_admin || teacherForm.role === 'Centre Director',
         notes: teacherForm.notes,
       })
-      ui.showToast(`Access granted for ${teacherForm.email}.`, 'success')
+      ui.showToast(`Educator ${teacherForm.name || teacherForm.email} added to ${teacherForm.centre_name}.`, 'success')
     }
     showTeacherModal.value = false
   } catch (err) {
@@ -162,6 +180,23 @@ function copyInviteLink(email: string) {
   const url = `${window.location.origin}/login?email=${encodeURIComponent(email)}`
   navigator.clipboard.writeText(url)
   ui.showToast(`Login link copied for ${email}`, 'success')
+}
+
+function copyFullCredentials(teacher: TeacherAccess) {
+  const portalUrl = `${window.location.origin}/login?email=${encodeURIComponent(teacher.email)}`
+  const text = `🌟 Hadfield Early Learning Inquiry Portal Login
+Centre Group: ${teacher.centre_name || 'Hadfield Early Learning Centre'}
+Educator Name: ${teacher.name}
+Role: ${teacher.role} (Room: ${teacher.room})
+Login Email: ${teacher.email}
+Password: ${teacher.password || 'Educator2026!'}
+Login Link: ${portalUrl}`
+
+  navigator.clipboard.writeText(text).then(() => {
+    ui.showToast(`Login credentials copied for ${teacher.name}!`, 'success')
+  }).catch(() => {
+    ui.showToast('Could not copy to clipboard.', 'error')
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -337,7 +372,13 @@ async function handleSaveTopicNotes(topic: TopicModuleStatus) {
         <div class="rounded-2xl bg-white/5 border border-white/10 p-3 sm:p-4">
           <p class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Authorized Teachers</p>
           <p class="mt-1 text-2xl font-black text-white">{{ admin.teachers.length }}</p>
-          <p class="text-xs text-slate-400">Whitelisted emails</p>
+          <p class="text-xs text-slate-400">Master-registered staff</p>
+        </div>
+
+        <div class="rounded-2xl bg-white/5 border border-white/10 p-3 sm:p-4">
+          <p class="text-[11px] font-bold uppercase tracking-wider text-brand-400">Centre Groups</p>
+          <p class="mt-1 text-2xl font-black text-brand-300">{{ admin.centreGroups.length }}</p>
+          <p class="text-xs text-slate-400">Isolated centre scopes</p>
         </div>
 
         <div class="rounded-2xl bg-white/5 border border-white/10 p-3 sm:p-4">
@@ -347,14 +388,8 @@ async function handleSaveTopicNotes(topic: TopicModuleStatus) {
         </div>
 
         <div class="rounded-2xl bg-white/5 border border-white/10 p-3 sm:p-4">
-          <p class="text-[11px] font-bold uppercase tracking-wider text-amber-400">Pending Invites</p>
-          <p class="mt-1 text-2xl font-black text-amber-300">{{ admin.invitedTeachers.length }}</p>
-          <p class="text-xs text-slate-400">Awaiting activation</p>
-        </div>
-
-        <div class="rounded-2xl bg-white/5 border border-white/10 p-3 sm:p-4">
-          <p class="text-[11px] font-bold uppercase tracking-wider text-orange-400">Under Development</p>
-          <p class="mt-1 text-2xl font-black text-orange-300">{{ admin.underDevTopics.length }}</p>
+          <p class="text-[11px] font-bold uppercase tracking-wider text-amber-400">Under Development</p>
+          <p class="mt-1 text-2xl font-black text-amber-300">{{ admin.underDevTopics.length }}</p>
           <p class="text-xs text-slate-400">Modules marked WIP</p>
         </div>
       </div>
@@ -449,19 +484,43 @@ async function handleSaveTopicNotes(topic: TopicModuleStatus) {
     <!-- TAB 1: TEACHER ACCESS CONTROL -->
     <!-- ===================================================================== -->
     <section v-if="activeTab === 'teachers'" class="space-y-4">
+      <!-- Master Policy Banner -->
+      <div class="p-4 rounded-2xl bg-brand-500/10 border border-brand-500/25 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-xs">
+        <div class="flex items-start gap-2.5">
+          <span class="text-xl shrink-0">🛡️</span>
+          <div class="space-y-0.5">
+            <p class="font-bold text-slate-900 dark:text-slate-100 text-sm">
+              Master Access & Centre Group Isolation
+            </p>
+            <p class="text-slate-600 dark:text-slate-300 leading-relaxed">
+              Public self-signup is disabled. Only Master Director <strong class="text-brand-600 dark:text-brand-400">Kapil Pandey</strong> can register educators into a Centre Group.
+              Educators in each group can only view documentation within their assigned Centre. Within their group, educators can edit and compile together with AI, while deletions are strictly protected.
+            </p>
+          </div>
+        </div>
+      </div>
+
       <!-- Search and filter toolbar -->
       <div class="card p-4 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
         <div class="flex-1 relative">
           <input
             v-model="searchQuery"
             type="search"
-            placeholder="Search teacher by name, email, or role..."
+            placeholder="Search educator by name, email, centre, or role..."
             class="input pl-9 w-full"
           />
           <span class="absolute left-3 top-2.5 text-slate-400">🔍</span>
         </div>
 
         <div class="flex flex-wrap items-center gap-2">
+          <!-- Centre Group Filter -->
+          <select v-model="filterCentre" class="select text-xs font-semibold">
+            <option value="all">All Centres ({{ admin.centreGroups.length }})</option>
+            <option v-for="centre in admin.centreGroups" :key="centre" :value="centre">
+              🏢 {{ centre }}
+            </option>
+          </select>
+
           <select v-model="filterRoom" class="select text-xs">
             <option value="all">All Rooms</option>
             <option v-for="room in roomOptions" :key="room" :value="room">{{ room }}</option>
@@ -480,7 +539,7 @@ async function handleSaveTopicNotes(topic: TopicModuleStatus) {
             @click="openAddTeacherModal"
           >
             <span>➕</span>
-            <span>Grant Email</span>
+            <span>Add Educator to Group</span>
           </button>
         </div>
       </div>
@@ -492,8 +551,10 @@ async function handleSaveTopicNotes(topic: TopicModuleStatus) {
             <thead class="bg-slate-50 dark:bg-slate-900/60 border-b border-slate-200 dark:border-slate-800 text-[11px] uppercase tracking-wider text-slate-500 font-bold">
               <tr>
                 <th class="py-3.5 px-4">Educator / Email</th>
+                <th class="py-3.5 px-4">Centre Group</th>
                 <th class="py-3.5 px-4">Role</th>
-                <th class="py-3.5 px-4">Room Assignment</th>
+                <th class="py-3.5 px-4">Room</th>
+                <th class="py-3.5 px-4">Password</th>
                 <th class="py-3.5 px-4">Status</th>
                 <th class="py-3.5 px-4">Admin Privileges</th>
                 <th class="py-3.5 px-4 text-right">Actions</th>
@@ -549,6 +610,14 @@ async function handleSaveTopicNotes(topic: TopicModuleStatus) {
                   </div>
                 </td>
 
+                <!-- Centre Group -->
+                <td class="py-3.5 px-4 whitespace-nowrap">
+                  <span class="inline-flex items-center gap-1 rounded-lg bg-brand-50 dark:bg-brand-950/60 border border-brand-200 dark:border-brand-800 text-brand-700 dark:text-brand-300 px-2.5 py-1 text-xs font-bold">
+                    <span>🏢</span>
+                    <span>{{ t.centre_name || 'Hadfield Early Learning Centre' }}</span>
+                  </span>
+                </td>
+
                 <!-- Role -->
                 <td class="py-3.5 px-4 whitespace-nowrap">
                   <span
@@ -571,6 +640,13 @@ async function handleSaveTopicNotes(topic: TopicModuleStatus) {
                 <td class="py-3.5 px-4 whitespace-nowrap">
                   <span class="rounded-md bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 px-2 py-0.5 text-xs font-semibold">
                     {{ t.room }}
+                  </span>
+                </td>
+
+                <!-- Password -->
+                <td class="py-3.5 px-4 whitespace-nowrap font-mono text-xs">
+                  <span class="px-2 py-1 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                    {{ t.password || 'Educator2026!' }}
                   </span>
                 </td>
 
@@ -640,11 +716,11 @@ async function handleSaveTopicNotes(topic: TopicModuleStatus) {
 
                     <button
                       type="button"
-                      class="btn-ghost p-1.5 text-xs"
-                      title="Copy login access link"
-                      @click="copyInviteLink(t.email)"
+                      class="btn-ghost p-1.5 text-xs text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-950/50"
+                      title="Copy full educator login credentials"
+                      @click="copyFullCredentials(t)"
                     >
-                      🔗
+                      📋 Copy Login
                     </button>
 
                     <button
@@ -1050,6 +1126,46 @@ async function handleSaveTopicNotes(topic: TopicModuleStatus) {
         </div>
 
         <form class="space-y-4" @submit.prevent="handleSaveTeacher">
+          <!-- Centre Group Name -->
+          <div class="space-y-1">
+            <div class="flex items-center justify-between">
+              <label class="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
+                Centre Group Name *
+              </label>
+              <span class="text-[11px] font-semibold text-brand-600 dark:text-brand-400">
+                Data Isolation Scope
+              </span>
+            </div>
+            <input
+              v-model="teacherForm.centre_name"
+              type="text"
+              required
+              list="admin-centre-groups-list"
+              placeholder="e.g. Hadfield Early Learning Centre"
+              class="input w-full"
+            />
+            <datalist id="admin-centre-groups-list">
+              <option v-for="g in admin.centreGroups" :key="g" :value="g" />
+            </datalist>
+            <p class="text-[11px] text-slate-500">
+              Only educators within this Centre Group will have access to its inquiry projects, stories, and wrap-ups.
+            </p>
+          </div>
+
+          <!-- Educator Full Name -->
+          <div class="space-y-1">
+            <label class="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
+              Educator Full Name *
+            </label>
+            <input
+              v-model="teacherForm.name"
+              type="text"
+              required
+              placeholder="e.g. Lakshmi"
+              class="input w-full"
+            />
+          </div>
+
           <!-- Email -->
           <div class="space-y-1">
             <label class="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
@@ -1063,21 +1179,28 @@ async function handleSaveTopicNotes(topic: TopicModuleStatus) {
               class="input w-full"
             />
             <p class="text-[11px] text-slate-500">
-              Only this email address will be authorized to log in to the Hadfield Inquiry Planner platform.
+              Authorized login email. Public self-signup is disabled.
             </p>
           </div>
 
-          <!-- Name -->
+          <!-- Password -->
           <div class="space-y-1">
-            <label class="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
-              Educator Full Name
-            </label>
+            <div class="flex items-center justify-between">
+              <label class="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
+                Assigned Login Password *
+              </label>
+              <span class="text-[11px] text-slate-400 font-mono">Master-assigned</span>
+            </div>
             <input
-              v-model="teacherForm.name"
+              v-model="teacherForm.password"
               type="text"
-              placeholder="e.g. Lakshmi"
-              class="input w-full"
+              required
+              placeholder="e.g. Educator2026!"
+              class="input w-full font-mono text-sm"
             />
+            <p class="text-[11px] text-slate-500">
+              The educator will enter this password when logging into their account.
+            </p>
           </div>
 
           <!-- Role & Room Grid -->

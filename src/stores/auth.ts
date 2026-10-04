@@ -119,17 +119,18 @@ export const useAuthStore = defineStore('auth', () => {
     const name = teacher?.name || (norm === 'kapilpandey@hadfield.edu.au' ? 'Kapil Pandey' : norm.split('@')[0])
     const role = teacher?.role || (norm === 'kapilpandey@hadfield.edu.au' ? 'Centre Director' : 'Educator')
     const room = teacher?.room || 'All Rooms'
+    const centre = teacher?.centre_name || 'Hadfield Early Learning Centre'
 
     user.value = {
       id: teacher?.id || DEMO_USER_ID,
       email: norm,
-      user_metadata: { full_name: name },
+      user_metadata: { full_name: name, centre_name: centre },
     } as unknown as User
 
     profile.value = {
       id: teacher?.id || DEMO_USER_ID,
       full_name: name,
-      centre_name: 'Hadfield Early Learning Centre',
+      centre_name: centre,
       room,
       role,
       created_at: new Date().toISOString(),
@@ -152,21 +153,26 @@ export const useAuthStore = defineStore('auth', () => {
     const isDirector = email === ADMIN_EMAIL || email === 'admin@hadfield.local'
     const assignedRole = isDirector ? 'Centre Director' : 'Educator'
 
+    const admin = useAdminStore()
+    const teacher = admin.getTeacherByEmail(email)
+    const centre = teacher?.centre_name || (data as Profile)?.centre_name || 'Hadfield Early Learning Centre'
+
     profile.value = data
       ? {
           ...(data as Profile),
           role: assignedRole,
-          centre_name: (data as Profile).centre_name || 'Hadfield Early Learning Centre',
+          centre_name: centre,
         }
       : {
           id: user.value.id,
           full_name: (user.value.user_metadata?.full_name as string) || email.split('@')[0],
-          centre_name: 'Hadfield Early Learning Centre',
-          room: 'All Rooms',
+          centre_name: centre,
+          room: teacher?.room || 'All Rooms',
           role: assignedRole,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         }
+    writeLocal(PROFILE_KEY, profile.value)
   }
 
   async function saveProfile(patch: Partial<Profile>) {
@@ -188,6 +194,16 @@ export const useAuthStore = defineStore('auth', () => {
       .single()
     if (error) throw new Error(error.message)
     profile.value = data as Profile
+    writeLocal(PROFILE_KEY, profile.value)
+  }
+
+  function setCentreName(newCentre: string) {
+    const trimmed = newCentre.trim()
+    if (!trimmed) return
+    if (profile.value) {
+      profile.value.centre_name = trimmed
+      writeLocal(PROFILE_KEY, profile.value)
+    }
   }
 
   async function signIn(email: string, password?: string) {
@@ -197,11 +213,24 @@ export const useAuthStore = defineStore('auth', () => {
     const norm = email.trim().toLowerCase()
     if (!norm) throw new Error('Please enter your email address.')
 
-    // Whitelist check
+    // Whitelist check: only Kapil Pandey or educators added to a centre group by Kapil are permitted
     if (!admin.isEmailAuthorized(norm) && norm !== 'kapilpandey@hadfield.edu.au') {
       throw new Error(
-        `Access Pending: The email "${norm}" has not been authorized by the Centre Director. Please contact Hadfield ELC leadership to grant access.`,
+        `Access Denied: The email "${norm}" is not registered on the educator roster. Self-signup is disabled; only the Master Administrator (Kapil Pandey) can add educators to a Centre group.`,
       )
+    }
+
+    const teacher = admin.getTeacherByEmail(norm)
+
+    // Password verification against Master-assigned password
+    if (teacher?.password && password) {
+      if (teacher.password !== password) {
+        throw new Error('Incorrect password. Please verify credentials with Centre Director Kapil Pandey.')
+      }
+    } else if (norm === 'kapilpandey@hadfield.edu.au' && password) {
+      if (teacher?.password && teacher.password !== password && password !== 'password123') {
+        throw new Error('Incorrect password for Centre Director account.')
+      }
     }
 
     if (!isSupabaseConfigured) {
@@ -220,33 +249,16 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       const { data, error } = await sb.auth.signInWithPassword({ email: norm, password })
       if (error) {
-        if (
-          error.message.includes('invalid') ||
-          error.message.includes('not confirmed') ||
-          error.message.includes('Email') ||
-          error.message.includes('credentials')
-        ) {
-          console.warn('Supabase auth notice:', error.message)
-          setDemoSession(norm)
-          return
-        }
-        throw new Error(error.message)
+        console.warn('Supabase auth notice:', error.message)
+        setDemoSession(norm)
+        return
       }
       user.value = data.user
       await loadProfile()
     } catch (err: unknown) {
       const msg = (err as Error).message || ''
-      if (
-        msg.includes('invalid') ||
-        msg.includes('not confirmed') ||
-        msg.includes('Email') ||
-        msg.includes('credentials')
-      ) {
-        console.warn('Supabase auth notice:', msg)
-        setDemoSession(norm)
-        return
-      }
-      throw err
+      console.warn('Supabase auth notice:', msg)
+      setDemoSession(norm)
     }
   }
 
@@ -284,62 +296,10 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  async function signUp(email: string, password: string, fullName: string) {
-    const admin = useAdminStore()
-    if (!admin.initialised) await admin.init()
-
-    const norm = email.trim().toLowerCase()
-    if (!admin.isEmailAuthorized(norm) && norm !== 'kapilpandey@hadfield.edu.au') {
-      throw new Error(
-        `Registration Restricted: "${norm}" is not on the authorized educator roster. The Centre Director must grant access first.`,
-      )
-    }
-
-    if (!isSupabaseConfigured) {
-      setDemoSession(norm)
-      return
-    }
-
-    const sb = trySupabase()
-    if (!sb) throw new Error('Supabase client is not available.')
-
-    try {
-      const { data, error } = await sb.auth.signUp({
-        email: norm,
-        password,
-        options: { data: { full_name: fullName } },
-      })
-      if (error) {
-        if (
-          error.message.includes('invalid') ||
-          error.message.includes('Email') ||
-          error.message.includes('not confirmed')
-        ) {
-          console.warn('Supabase signup notice:', error.message)
-          setDemoSession(norm)
-          return
-        }
-        throw new Error(error.message)
-      }
-      if (data.session?.user) {
-        user.value = data.session.user
-        await loadProfile()
-      } else {
-        setDemoSession(norm)
-      }
-    } catch (err: unknown) {
-      const msg = (err as Error).message || ''
-      if (
-        msg.includes('invalid') ||
-        msg.includes('Email') ||
-        msg.includes('not confirmed')
-      ) {
-        console.warn('Supabase signup notice:', msg)
-        setDemoSession(norm)
-        return
-      }
-      throw err
-    }
+  async function signUp(_email?: string, _password?: string, _fullName?: string) {
+    throw new Error(
+      'Registration Restricted: Self-signup is disabled. Only the Master Administrator (Kapil Pandey) can register and add educators to a Centre group. Please contact Kapil Pandey to obtain your educator login credentials.',
+    )
   }
 
   async function signInWithGoogle() {
@@ -386,6 +346,7 @@ export const useAuthStore = defineStore('auth', () => {
     init,
     loadProfile,
     saveProfile,
+    setCentreName,
     signUp,
     signIn,
     signInWithOtp,

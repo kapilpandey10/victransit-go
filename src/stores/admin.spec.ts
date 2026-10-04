@@ -8,43 +8,53 @@ beforeEach(() => {
 })
 
 describe('useAdminStore', () => {
-  it('initialises with default teachers and topics', async () => {
+  it('initialises with default teachers, centre groups, and topics', async () => {
     const admin = useAdminStore()
     await admin.init()
 
     expect(admin.teachers.length).toBeGreaterThanOrEqual(6)
     expect(admin.topicStatuses.length).toBeGreaterThanOrEqual(8)
+    expect(admin.centreGroups).toContain('Hadfield Early Learning Centre')
 
     const kapil = admin.teachers.find(t => t.email === 'kapilpandey@hadfield.edu.au')
     expect(kapil).toBeDefined()
     expect(kapil?.role).toBe('Centre Director')
+    expect(kapil?.centre_name).toBe('Hadfield Early Learning Centre')
+    expect(kapil?.password).toBe('password123')
 
     const storiesTopic = admin.getTopic('learning-stories')
     expect(storiesTopic).toBeDefined()
     expect(storiesTopic?.status).toBe('active')
   })
 
-  it('adds and updates teacher email access', async () => {
+  it('adds and updates teacher email access with centre group and password', async () => {
     const admin = useAdminStore()
     await admin.init()
 
     const newTeacher = await admin.addTeacher({
-      email: 'new.teacher@hadfield.edu.au',
-      name: 'New Educator',
+      email: 'anna@sunshineelc.edu.au',
+      name: 'Anna Smith',
       role: 'Educator',
-      room: 'Chamomiles',
-      status: 'invited',
-      notes: 'Starting term 2',
+      room: 'Sunflowers',
+      centre_name: 'Sunshine Early Learning Centre',
+      password: 'SunshinePass2026!',
+      status: 'active',
+      notes: 'New educator for Sunshine centre branch',
     })
 
-    expect(newTeacher.email).toBe('new.teacher@hadfield.edu.au')
-    expect(admin.teachers.some(t => t.id === newTeacher.id)).toBe(true)
+    expect(newTeacher.email).toBe('anna@sunshineelc.edu.au')
+    expect(newTeacher.centre_name).toBe('Sunshine Early Learning Centre')
+    expect(newTeacher.password).toBe('SunshinePass2026!')
+    expect(admin.centreGroups).toContain('Sunshine Early Learning Centre')
 
-    // Updating status to active
-    await admin.setTeacherStatus(newTeacher.id, 'active')
+    // Updating status and room
+    await admin.updateTeacher(newTeacher.id, {
+      room: 'Bluebells',
+      password: 'UpdatedSecret2026!',
+    })
     const updated = admin.teachers.find(t => t.id === newTeacher.id)
-    expect(updated?.status).toBe('active')
-    expect(updated?.last_active_at).toBeDefined()
+    expect(updated?.room).toBe('Bluebells')
+    expect(updated?.password).toBe('UpdatedSecret2026!')
 
     // Deleting teacher
     await admin.deleteTeacher(newTeacher.id)

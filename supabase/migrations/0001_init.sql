@@ -453,14 +453,14 @@ create trigger rooms_updated_at
 -- -------------------------------------------------------------------------
 -- Initial Seed Data: Service Director, Educators, and Learning Rooms
 -- -------------------------------------------------------------------------
-insert into public.teacher_access (email, name, role, room, status, is_admin, notes)
+insert into public.teacher_access (email, name, role, room, status, is_admin, centre_name, password, notes)
 values
-  ('kapilpandey@hadfield.edu.au', 'Kapil Pandey', 'Centre Director', 'All Rooms', 'active', true, 'Service Director and System Administrator.'),
-  ('jean@hadfield.edu.au', 'Jean', 'Educational Leader', 'All Rooms', 'active', false, 'Curriculum oversight, pedagogical reflection, and educator coaching.'),
-  ('lakshmi@hadfield.edu.au', 'Lakshmi', 'Early Childhood Teacher', 'Dandelions', 'active', false, 'Funded Kindergarten program lead and STEM investigations.'),
-  ('kelly.goodsir@hadfield.edu.au', 'Kelly Goodsir', 'Room Leader', 'Butter Beans', 'active', false, 'Toddler room inquiry and play schema documentation.'),
-  ('nikki@hadfield.edu.au', 'Nikki', 'Early Childhood Teacher', 'Rosellas', 'invited', false, 'Pre-kindergarten early literacy and transitions.'),
-  ('sarah.j@hadfield.edu.au', 'Sarah Jenkins', 'Educator', 'Blossoms', 'active', false, 'Nursery infant sensory play and primary caregiving.')
+  ('kapilpandey@hadfield.edu.au', 'Kapil Pandey', 'Centre Director', 'All Rooms', 'active', true, 'Hadfield Early Learning Centre', 'password123', 'Service Director and System Administrator.'),
+  ('jean@hadfield.edu.au', 'Jean', 'Educational Leader', 'All Rooms', 'active', false, 'Hadfield Early Learning Centre', 'Educator2026!', 'Curriculum oversight, pedagogical reflection, and educator coaching.'),
+  ('lakshmi@hadfield.edu.au', 'Lakshmi', 'Early Childhood Teacher', 'Dandelions', 'active', false, 'Hadfield Early Learning Centre', 'Educator2026!', 'Funded Kindergarten program lead and STEM investigations.'),
+  ('kelly.goodsir@hadfield.edu.au', 'Kelly Goodsir', 'Room Leader', 'Butter Beans', 'active', false, 'Hadfield Early Learning Centre', 'Educator2026!', 'Toddler room inquiry and play schema documentation.'),
+  ('nikki@hadfield.edu.au', 'Nikki', 'Early Childhood Teacher', 'Rosellas', 'invited', false, 'Hadfield Early Learning Centre', 'Educator2026!', 'Pre-kindergarten early literacy and transitions.'),
+  ('sarah.j@hadfield.edu.au', 'Sarah Jenkins', 'Educator', 'Blossoms', 'active', false, 'Hadfield Early Learning Centre', 'Educator2026!', 'Nursery infant sensory play and primary caregiving.')
 on conflict do nothing;
 
 insert into public.rooms (name, description, sort_order, is_active)
@@ -474,5 +474,15 @@ values
   ('Wattles', 'Nature-inspired STEM room', 6, true)
 on conflict do nothing;
 
+-- -------------------------------------------------------------------------
+-- Centre Group Scoping & Protected Collaboration Schema Migrations
+-- -------------------------------------------------------------------------
+alter table public.teacher_access add column if not exists centre_name text not null default 'Hadfield Early Learning Centre';
+alter table public.teacher_access add column if not exists password text default 'Educator2026!';
 
-
+alter table public.projects add column if not exists centre_name text not null default 'Hadfield Early Learning Centre';
+alter table public.learning_stories add column if not exists centre_name text not null default 'Hadfield Early Learning Centre';
+alter table public.activities add column if not exists centre_name text not null default 'Hadfield Early Learning Centre';
+alter table public.newsletters add column if not exists centre_name text not null default 'Hadfield Early Learning Centre';
+alter table public.program_book_analyses add column if not exists centre_name text not null default 'Hadfield Early Learning Centre';
+alter table public.weekly_wrap_ups add column if not exists centre_name text not null default 'Hadfield Early Learning Centre';

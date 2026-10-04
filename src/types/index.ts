@@ -52,6 +52,7 @@ export type NodeType = 'theme' | 'question' | 'activity' | 'resource' | 'theory'
 export interface Persisted {
   id: string
   user_id: string
+  centre_name?: string
   created_at: string
   updated_at: string
   /** Loose access used by the repository's generic filters/sorts. */
@@ -193,6 +194,8 @@ export interface TeacherAccess extends Persisted {
   role: TeacherRole
   room: string
   status: TeacherAccessStatus
+  centre_name?: string
+  password?: string
   is_admin?: boolean
   notes?: string
   invited_at?: string

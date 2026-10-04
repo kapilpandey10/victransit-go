@@ -110,6 +110,8 @@ export const DEFAULT_TEACHERS: Array<{
   role: TeacherRole
   room: string
   status: TeacherAccessStatus
+  centre_name?: string
+  password?: string
   is_admin?: boolean
   notes: string
 }> = [
@@ -119,6 +121,8 @@ export const DEFAULT_TEACHERS: Array<{
     role: 'Centre Director',
     room: 'All Rooms',
     status: 'active',
+    centre_name: 'Hadfield Early Learning Centre',
+    password: 'password123',
     is_admin: true,
     notes: 'Service Director and System Administrator.',
   },
@@ -128,6 +132,8 @@ export const DEFAULT_TEACHERS: Array<{
     role: 'Educational Leader',
     room: 'All Rooms',
     status: 'active',
+    centre_name: 'Hadfield Early Learning Centre',
+    password: 'Educator2026!',
     is_admin: false,
     notes: 'Curriculum oversight, pedagogical reflection, and educator coaching.',
   },
@@ -137,6 +143,8 @@ export const DEFAULT_TEACHERS: Array<{
     role: 'Early Childhood Teacher',
     room: 'Dandelions',
     status: 'active',
+    centre_name: 'Hadfield Early Learning Centre',
+    password: 'Educator2026!',
     is_admin: false,
     notes: 'Funded Kindergarten program lead and STEM investigations.',
   },
@@ -146,6 +154,8 @@ export const DEFAULT_TEACHERS: Array<{
     role: 'Room Leader',
     room: 'Butter Beans',
     status: 'active',
+    centre_name: 'Hadfield Early Learning Centre',
+    password: 'Educator2026!',
     is_admin: false,
     notes: 'Toddler room inquiry and play schema documentation.',
   },
@@ -155,6 +165,8 @@ export const DEFAULT_TEACHERS: Array<{
     role: 'Early Childhood Teacher',
     room: 'Rosellas',
     status: 'invited',
+    centre_name: 'Hadfield Early Learning Centre',
+    password: 'Educator2026!',
     is_admin: false,
     notes: 'Pre-kindergarten early literacy and transitions.',
   },
@@ -164,6 +176,8 @@ export const DEFAULT_TEACHERS: Array<{
     role: 'Educator',
     room: 'Blossoms',
     status: 'active',
+    centre_name: 'Hadfield Early Learning Centre',
+    password: 'Educator2026!',
     is_admin: false,
     notes: 'Nursery infant sensory play and primary caregiving.',
   },
@@ -199,6 +213,16 @@ export const useAdminStore = defineStore('admin', () => {
   const activeTeachers = computed(() => teachers.value.filter(t => t.status === 'active'))
   const invitedTeachers = computed(() => teachers.value.filter(t => t.status === 'invited'))
   const suspendedTeachers = computed(() => teachers.value.filter(t => t.status === 'suspended'))
+
+  /** All distinct Centre Groups configured in the system */
+  const centreGroups = computed(() => {
+    const set = new Set<string>()
+    for (const t of teachers.value) {
+      if (t.centre_name?.trim()) set.add(t.centre_name.trim())
+    }
+    if (set.size === 0) set.add('Hadfield Early Learning Centre')
+    return Array.from(set).sort()
+  })
 
   const underDevTopics = computed(() =>
     topicStatuses.value.filter(t => t.status === 'under_development'),
@@ -321,6 +345,8 @@ export const useAdminStore = defineStore('admin', () => {
     name: string
     role: TeacherRole
     room: string
+    centre_name?: string
+    password?: string
     status?: TeacherAccessStatus
     is_admin?: boolean
     notes?: string
@@ -338,6 +364,8 @@ export const useAdminStore = defineStore('admin', () => {
       name: payload.name.trim() || emailNorm.split('@')[0],
       role: payload.role,
       room: payload.room || 'All Rooms',
+      centre_name: payload.centre_name?.trim() || 'Hadfield Early Learning Centre',
+      password: payload.password?.trim() || 'Educator2026!',
       status: payload.status ?? 'active',
       is_admin: isAdmin,
       notes: payload.notes?.trim() ?? '',
@@ -351,6 +379,12 @@ export const useAdminStore = defineStore('admin', () => {
   async function updateTeacher(id: string, patch: Partial<TeacherAccess>) {
     if (patch.email) {
       patch.email = patch.email.trim().toLowerCase()
+    }
+    if (patch.centre_name) {
+      patch.centre_name = patch.centre_name.trim()
+    }
+    if (patch.password !== undefined) {
+      patch.password = patch.password.trim()
     }
     const updated = await teacherRepo.update(scope(), id, patch)
     teachers.value = teachers.value.map(t => (t.id === id ? updated : t))
@@ -434,6 +468,7 @@ export const useAdminStore = defineStore('admin', () => {
     activeTeachers,
     invitedTeachers,
     suspendedTeachers,
+    centreGroups,
     underDevTopics,
     topicsByKey,
     topicsByPath,
