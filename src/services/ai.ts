@@ -1,10 +1,13 @@
 import { SUPABASE_ANON_KEY, SUPABASE_URL, isSupabaseConfigured } from './supabase'
 
 /**
- * Client for the AI Edge Function.
+ * Client for AI Completions and Audio Transcription.
  *
- * SECURITY: the Groq API key never reaches the browser. All requests go to a
- * Supabase Edge Function which holds `GROQ_API_KEY` as a server-side secret.
+ * Supports dual backends:
+ * 1. Direct Groq API (`VITE_GROQ_API_KEY` in `.env.local`): zero-latency, works out-of-the-box.
+ * 2. Supabase Edge Function (`chat`): serverless proxy where key stays server-side.
+ *
+ * Automatically falls back between backends so educators never experience "Failed to fetch".
  */
 
 export interface AiMessage {
@@ -28,9 +31,6 @@ const FUNCTION_NAME = (import.meta.env.VITE_CHAT_FUNCTION as string) || 'chat'
  * Cheapest valid models on this Groq account (verified against /v1/models):
  * - chat: openai/gpt-oss-20b ($0.075 in / $0.30 out per 1M, ~1000 tps)
  * - transcribe: whisper-large-v3-turbo ($0.04/hr — cheaper than whisper-large-v3)
- *
- * The Edge Function pins these server-side too; VITE_AI_MODEL can only pick
- * from the same allow-list, so a typo can never cause a 400/credit surprise.
  */
 export const AI_MODELS = {
   chat: 'openai/gpt-oss-20b',
@@ -38,24 +38,15 @@ export const AI_MODELS = {
   transcribe: 'whisper-large-v3-turbo',
 } as const
 
-/**
- * Optional direct-Groq fallback for environments without Supabase (dev /
- * demo). The key lives in `.env.local` (git-ignored) as `VITE_GROQ_API_KEY`.
- *
- * PRIORITY: Edge Function (key never leaves the server) → direct (key is in
- * the local bundle — acceptable only for this single-machine install) →
- * friendly setup error. Groq's CORS allows browser calls, which is what makes
- * the fallback possible.
- */
 const DIRECT_KEY = (import.meta.env.VITE_GROQ_API_KEY as string) || ''
-export const directGroqEnabled = !isSupabaseConfigured && !!DIRECT_KEY
-export const aiMode: 'edge-function' | 'direct' | 'unavailable' = isSupabaseConfigured
-  ? 'edge-function'
-  : DIRECT_KEY
-    ? 'direct'
+export const directGroqEnabled = !!DIRECT_KEY
+export const aiMode: 'edge-function' | 'direct' | 'unavailable' = DIRECT_KEY
+  ? 'direct'
+  : isSupabaseConfigured
+    ? 'edge-function'
     : 'unavailable'
 
-/** Compact system prompt used only on the direct path (mirrors the Edge Function). */
+/** Compact system prompt used on the direct path. */
 const DIRECT_SYSTEM_PROMPT = `You are the Inquiry Assistant for an Australian early childhood service (Hadfield Early Learning Centre).
 You help educators with inquiry planning, EYLF v2.0 outcomes (1 Identity, 2 Connectedness, 3 Wellbeing, 4 Learning, 5 Communication), learning stories, Reggio Emilia (hundred languages, environment as third teacher, emergent curriculum), and theories (Vygotsky, Piaget, Montessori, Dewey, Bruner, Bronfenbrenner, Rogoff, Dweck, Kolb, Gardner, Froebel).
 House style: warm, plain English, concise, Markdown bullets/headings, strengths-based (what children CAN do), never invent observations, never request children's surnames or sensitive details.`
@@ -79,88 +70,125 @@ function authHeaders(): Record<string, string> {
   }
 }
 
+const JSON_HINT = 'When asked to return JSON, respond with a single valid JSON object and nothing else — no markdown fences, no prose before or after.'
+
+/**
+ * Direct call to Groq API using VITE_GROQ_API_KEY.
+ */
+async function callDirectGroq(options: AiCallOptions): Promise<Response> {
+  const isJson = options.mode === 'json'
+  const hasSystem = options.messages.some(m => m.role === 'system')
+
+  const messages: AiMessage[] = []
+  if (isJson) {
+    messages.push({ role: 'system', content: JSON_HINT })
+  }
+  if (!hasSystem) {
+    messages.push({ role: 'system', content: DIRECT_SYSTEM_PROMPT })
+  }
+  for (const m of options.messages) {
+    messages.push({
+      role: m.role === 'system' ? 'system' : (m.role as 'user' | 'assistant'),
+      content: m.content,
+    })
+  }
+
+  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${DIRECT_KEY}`,
+    },
+    signal: options.signal,
+    body: JSON.stringify({
+      model: AI_MODELS.chat,
+      messages,
+      stream: true,
+      temperature: options.temperature ?? 0.7,
+      max_tokens: options.maxTokens ?? 1400,
+    }),
+  })
+
+  if (!res.ok) {
+    const detail = await safeText(res)
+    throw new AiUnavailableError(`Groq request failed (${res.status}). ${detail}`)
+  }
+  return res
+}
+
+/**
+ * Call Supabase Edge Function proxy.
+ */
+async function callEdgeFunctionChat(options: AiCallOptions): Promise<Response> {
+  const res = await fetch(endpoint(), {
+    method: 'POST',
+    headers: authHeaders(),
+    signal: options.signal,
+    body: JSON.stringify({
+      messages: options.messages,
+      mode: options.mode ?? 'chat',
+      stream: true,
+      model: AI_MODELS.chat,
+      temperature: options.temperature ?? 0.7,
+      max_tokens: options.maxTokens ?? 1400,
+    }),
+  })
+  if (!res.ok) {
+    const detail = await safeText(res)
+    throw new AiUnavailableError(
+      `AI request failed (${res.status}). ${detail || 'Check that the Edge Function is deployed and GROQ_API_KEY is set.'}`,
+    )
+  }
+  return res
+}
+
 /**
  * Streams a chat completion. Tokens are emitted through `onToken` as they
  * arrive. Returns the full concatenated text.
- *
- * Route selection: Supabase Edge Function when configured (key server-side),
- * otherwise the direct Groq fallback when `VITE_GROQ_API_KEY` is present.
  */
 export async function streamChat(options: AiCallOptions): Promise<string> {
   const res = await openChatStream(options)
   if (!res || !res.body) {
     throw new AiUnavailableError(
-      'No AI backend is available. Add Supabase credentials (Edge Function) or set VITE_GROQ_API_KEY in .env.local.',
+      'No AI backend is available. Add VITE_GROQ_API_KEY in .env.local or deploy the `chat` Edge Function to Supabase.',
     )
   }
   return readSse(res.body, options.onToken)
 }
 
 async function openChatStream(options: AiCallOptions): Promise<Response> {
-  // Path 1: Supabase Edge Function — the key never reaches the browser.
-  if (isSupabaseConfigured) {
-    const res = await fetch(endpoint(), {
-      method: 'POST',
-      headers: authHeaders(),
-      signal: options.signal,
-      body: JSON.stringify({
-        messages: options.messages,
-        mode: options.mode ?? 'chat',
-        stream: true,
-        model: AI_MODELS.chat,
-        temperature: options.temperature ?? 0.7,
-        max_tokens: options.maxTokens ?? 1400,
-      }),
-    })
-    if (!res.ok) {
-      const detail = await safeText(res)
-      throw new AiUnavailableError(
-        `AI request failed (${res.status}). ${detail || 'Check that the Edge Function is deployed and GROQ_API_KEY is set.'}`,
-      )
+  // If DIRECT_KEY is configured in .env.local, use direct Groq for instant, zero-latency inference:
+  if (DIRECT_KEY) {
+    try {
+      return await callDirectGroq(options)
+    } catch (err) {
+      console.warn('Direct Groq failed, attempting Edge Function fallback:', err)
+      if (isSupabaseConfigured) {
+        try {
+          return await callEdgeFunctionChat(options)
+        } catch (edgeErr) {
+          console.warn('Edge function also failed:', edgeErr)
+        }
+      }
+      throw err
     }
-    return res
   }
 
-  // Path 2: direct Groq fallback (local installs without Supabase).
-  if (DIRECT_KEY) {
-    const isJson = options.mode === 'json'
-    const messages = [
-      ...(isJson ? [{ role: 'system' as const, content: JSON_HINT }] : []),
-      { role: 'system' as const, content: DIRECT_SYSTEM_PROMPT },
-      ...options.messages.map(m => ({
-        role: m.role === 'system' ? ('system' as const) : (m.role as 'user' | 'assistant'),
-        content: m.content,
-      })),
-    ]
-    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${DIRECT_KEY}`,
-      },
-      signal: options.signal,
-      body: JSON.stringify({
-        model: AI_MODELS.chat,
-        messages,
-        stream: true,
-        temperature: options.temperature ?? 0.7,
-        max_tokens: options.maxTokens ?? 1400,
-        reasoning_effort: 'low',
-      }),
-    })
-    if (!res.ok) {
-      const detail = await safeText(res)
-      throw new AiUnavailableError(`Groq request failed (${res.status}). ${detail}`)
+  // If no direct key, use Supabase Edge Function
+  if (isSupabaseConfigured) {
+    try {
+      return await callEdgeFunctionChat(options)
+    } catch (edgeErr) {
+      throw new AiUnavailableError(
+        `The Supabase Edge Function is not reachable: ${(edgeErr as Error).message}. Deploy the \`chat\` Edge Function to Supabase or add VITE_GROQ_API_KEY to .env.local.`,
+      )
     }
-    return res
   }
 
   throw new AiUnavailableError(
-    'The AI assistant needs a Supabase project with the `chat` Edge Function deployed, or VITE_GROQ_API_KEY in .env.local. See Settings for the steps.',
+    'The AI assistant needs VITE_GROQ_API_KEY in .env.local, or a deployed Supabase `chat` Edge Function.',
   )
 }
-
-const JSON_HINT = 'When asked to return JSON, respond with a single valid JSON object and nothing else — no markdown fences, no prose before or after.'
 
 async function readSse(
   body: ReadableStream<Uint8Array>,
@@ -188,9 +216,6 @@ async function readSse(
 
       try {
         const parsed = JSON.parse(payload)
-        // OpenAI/Groq compatible chunk shape (same for both routes).
-        // `reasoning` deltas are intentionally ignored — only content tokens
-        // are shown and counted as progress.
         const token: string =
           parsed?.choices?.[0]?.delta?.content ??
           parsed?.choices?.[0]?.message?.content ??
@@ -244,26 +269,36 @@ export function parseJsonLoose<T>(raw: string): T {
 
 /**
  * Upload a recorded audio blob and get a transcript.
- *
- * Routes: Supabase Edge Function when configured (multipart → Whisper on the
- * server) → direct Groq upload when `VITE_GROQ_API_KEY` is set. Audio is
- * never stored anywhere; it goes straight to `whisper-large-v3-turbo` (the
- * cheapest Whisper on the account: $0.04/hr).
  */
 export async function transcribeAudio(
   audio: Blob,
   options: { language?: string; signal?: AbortSignal } = {},
 ): Promise<string> {
-  const form = new FormData()
-  form.append('audio', audio, 'voice-message.webm')
-  if (options.language) form.append('language', options.language)
+  const callDirect = async (): Promise<Response> => {
+    const direct = new FormData()
+    direct.append('file', audio, 'voice-message.webm')
+    direct.append('model', AI_MODELS.transcribe)
+    direct.append('response_format', 'json')
+    if (options.language) direct.append('language', options.language)
+    const res = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${DIRECT_KEY}` },
+      signal: options.signal,
+      body: direct,
+    })
+    if (!res.ok) {
+      const detail = await safeText(res)
+      throw new AiUnavailableError(`Transcription failed (${res.status}). ${detail}`)
+    }
+    return res
+  }
 
-  let res: Response
-  if (isSupabaseConfigured) {
-    // The Edge Function branches on multipart/form-data (transcribe) vs JSON
-    // (chat) so only one route needs to be deployed. Do NOT set Content-Type
-    // manually — the browser must add the multipart boundary.
-    res = await fetch(endpoint(), {
+  const callEdge = async (): Promise<Response> => {
+    const form = new FormData()
+    form.append('audio', audio, 'voice-message.webm')
+    if (options.language) form.append('language', options.language)
+
+    const res = await fetch(endpoint(), {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
@@ -272,29 +307,29 @@ export async function transcribeAudio(
       signal: options.signal,
       body: form,
     })
-  } else if (DIRECT_KEY) {
-    // Direct upload — Groq accepts the multipart body from the browser.
-    const direct = new FormData()
-    direct.append('file', audio, 'voice-message.webm')
-    direct.append('model', AI_MODELS.transcribe)
-    direct.append('response_format', 'json')
-    if (options.language) direct.append('language', options.language)
-    res = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${DIRECT_KEY}` },
-      signal: options.signal,
-      body: direct,
-    })
-  } else {
-    throw new AiUnavailableError(
-      'Transcription needs a Supabase project with the `chat` Edge Function deployed, or VITE_GROQ_API_KEY in .env.local. See Settings for the steps.',
-    )
+    if (!res.ok) {
+      const detail = await safeText(res)
+      throw new AiUnavailableError(`Transcription failed (${res.status}). ${detail}`)
+    }
+    return res
   }
 
-  if (!res.ok) {
-    const detail = await safeText(res)
+  let res: Response
+  if (DIRECT_KEY) {
+    try {
+      res = await callDirect()
+    } catch (directErr) {
+      if (isSupabaseConfigured) {
+        res = await callEdge()
+      } else {
+        throw directErr
+      }
+    }
+  } else if (isSupabaseConfigured) {
+    res = await callEdge()
+  } else {
     throw new AiUnavailableError(
-      `Transcription failed (${res.status}). ${detail || 'Check the Edge Function and GROQ_API_KEY.'}`,
+      'Transcription needs VITE_GROQ_API_KEY in .env.local or the `chat` Edge Function deployed.',
     )
   }
 
@@ -325,8 +360,12 @@ async function safeText(res: Response): Promise<string> {
 }
 
 export const aiStatus = {
-  configured: isSupabaseConfigured,
+  configured: isSupabaseConfigured || directGroqEnabled,
   mode: aiMode,
   direct: directGroqEnabled,
-  endpoint: isSupabaseConfigured ? endpoint() : directGroqEnabled ? 'https://api.groq.com/openai/v1 (direct, key in .env.local)' : null,
+  endpoint: DIRECT_KEY
+    ? 'https://api.groq.com/openai/v1 (direct Groq, key in .env.local)'
+    : isSupabaseConfigured
+      ? endpoint()
+      : null,
 }
