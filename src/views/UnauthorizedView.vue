@@ -55,10 +55,10 @@ async function handleSignOut() {
         </h1>
         <p class="text-xs text-slate-400 max-w-sm mx-auto leading-relaxed">
           <template v-if="isNotAdmin">
-            The Admin Dashboard is strictly reserved for the <strong>Centre Director</strong> and system administrators. Your account (<span class="text-brand-300 font-mono">{{ auth.userEmail }}</span>) has educator access.
+            The Admin Dashboard is strictly reserved for system administrators. Your account (<span class="text-brand-300 font-mono">{{ auth.userEmail }}</span>) has educator access.
           </template>
           <template v-else>
-            Your email address (<span class="text-brand-300 font-mono">{{ auth.userEmail || 'unknown' }}</span>) has not yet been authorized by Hadfield Early Learning Centre administration.
+            Your email address (<span class="text-brand-300 font-mono">{{ auth.userEmail || 'unknown' }}</span>) has not yet been authorized by centre administration.
           </template>
         </p>
       </div>
@@ -70,11 +70,7 @@ async function handleSignOut() {
           <span>How to request access:</span>
         </p>
         <p class="leading-relaxed">
-          Contact Centre Director <strong>Kapil Pandey</strong> at
-          <a href="mailto:info@pandeykapil.com.np" class="text-brand-400 underline font-bold">
-            info@pandeykapil.com.np
-          </a>
-          to grant login authorization for your room or role. If your account was added just now, click the button below to re-verify against the database.
+          Contact your Centre Director or system administrator to grant login authorization for your room or role. If your account was added just now, click the button below to re-verify against the database.
         </p>
       </div>
 

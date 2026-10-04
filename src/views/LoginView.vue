@@ -83,37 +83,21 @@ async function handleForgotPassword() {
     forgotLoading.value = false
   }
 }
-
-function fillMasterAccount() {
-  email.value = 'info@pandeykapil.com.np'
-  useOtp.value = false
-}
 </script>
 
 <template>
   <div class="min-h-screen flex items-center justify-center p-4 bg-slate-900/95 text-slate-100">
     <div class="card max-w-md w-full p-6 sm:p-8 bg-slate-900 border-slate-800 shadow-lift space-y-6">
-      <!-- Centre Brand Header -->
+      <!-- Portal Brand Header -->
       <div class="text-center space-y-2">
         <div class="mx-auto grid h-14 w-14 place-items-center rounded-3xl bg-brand-600 text-3xl shadow-soft">
           🌱
         </div>
         <h1 class="font-display text-2xl font-black tracking-tight text-white">
-          Hadfield Early Learning Centre
+          Early Learning Portal
         </h1>
         <p class="text-xs uppercase font-extrabold tracking-wider text-brand-400">
-          Inquiry Planner & Educational Portal
-        </p>
-      </div>
-
-      <!-- Master Access Control Notice -->
-      <div class="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5 text-xs text-amber-200 space-y-1.5">
-        <div class="flex items-center gap-2 font-bold text-white">
-          <span>🛡️</span>
-          <span>Master-Controlled Access Only</span>
-        </div>
-        <p class="leading-relaxed text-slate-300">
-          Public self-registration is disabled. Only Master Administrator Kapil Pandey (<span class="text-amber-300 font-semibold font-mono">info@pandeykapil.com.np</span>) can add educators to a Centre group.
+          Inquiry Planner & Educational Workspace
         </p>
       </div>
 
@@ -129,21 +113,6 @@ function fillMasterAccount() {
         </div>
       </div>
 
-      <!-- Master Quick Login Preset -->
-      <div class="rounded-xl bg-slate-800/80 border border-slate-700/80 p-3 text-xs flex items-center justify-between">
-        <div>
-          <p class="font-bold text-slate-200">👑 Master Administrator</p>
-          <p class="text-[11px] font-mono text-slate-400">info@pandeykapil.com.np</p>
-        </div>
-        <button
-          type="button"
-          class="btn-secondary text-[11px] py-1 px-2.5 font-bold"
-          @click="fillMasterAccount"
-        >
-          Fill Master
-        </button>
-      </div>
-
       <!-- Login Form -->
       <form class="space-y-4" @submit.prevent="handleLogin">
         <div class="space-y-1">
@@ -155,7 +124,7 @@ function fillMasterAccount() {
             type="email"
             required
             autocomplete="email"
-            placeholder="e.g. educator@hadfield.edu.au"
+            placeholder="e.g. educator@centre.edu.au"
             class="input w-full bg-slate-800/80 border-slate-700 text-white placeholder-slate-500"
           />
         </div>
@@ -216,7 +185,7 @@ function fillMasterAccount() {
       <!-- Security Guidance Footer -->
       <div class="border-t border-slate-800 pt-4 text-center">
         <p class="text-[11px] text-slate-400 leading-relaxed">
-          Need educator access? Only Master Director Kapil Pandey (<span class="font-mono text-slate-300">info@pandeykapil.com.np</span>) can add educators to a Centre Group.
+          Need educator access? Contact your centre administrator to receive an invitation.
         </p>
       </div>
     </div>
@@ -249,7 +218,7 @@ function fillMasterAccount() {
             v-model="forgotEmail"
             type="email"
             required
-            placeholder="educator@hadfield.edu.au"
+            placeholder="educator@centre.edu.au"
             class="input w-full bg-slate-800 border-slate-700 text-white"
           />
           <div class="flex items-center justify-end gap-2 pt-2">
