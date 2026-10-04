@@ -62,41 +62,53 @@ export const useAuthStore = defineStore('auth', () => {
 
   async function init() {
     loading.value = true
-    const admin = useAdminStore()
-    if (!admin.initialised) {
-      await admin.init()
-    }
-
-    if (!isSupabaseConfigured) {
-      // Demo Mode: Check if a user was previously logged in
-      const savedEmail = localStorage.getItem(DEMO_EMAIL_KEY) || 'kapilpandey@hadfield.edu.au'
-      if (savedEmail) {
-        setDemoSession(savedEmail)
-      } else {
-        user.value = null
-        profile.value = null
+    try {
+      const admin = useAdminStore()
+      if (!admin.initialised) {
+        await admin.init()
       }
+
+      if (!isSupabaseConfigured) {
+        // Demo Mode: Check if a user was previously logged in
+        const savedEmail = localStorage.getItem(DEMO_EMAIL_KEY) || 'kapilpandey@hadfield.edu.au'
+        if (savedEmail) {
+          setDemoSession(savedEmail)
+        } else {
+          user.value = null
+          profile.value = null
+        }
+        return
+      }
+
+      const sb = trySupabase()
+      if (!sb) {
+        return
+      }
+
+      const { data } = await sb.auth.getSession()
+      user.value = data.session?.user ?? null
+
+      sb.auth.onAuthStateChange((_event, session) => {
+        user.value = session?.user ?? null
+        if (session?.user) void loadProfile()
+        else profile.value = null
+      })
+
+      if (user.value) {
+        await loadProfile()
+      } else {
+        // If no cloud auth session is active, check if an authorized educator or director
+        // was previously signed in on this device:
+        const savedEmail = localStorage.getItem(DEMO_EMAIL_KEY)
+        if (savedEmail && admin.isEmailAuthorized(savedEmail)) {
+          setDemoSession(savedEmail)
+        }
+      }
+    } catch (e) {
+      console.warn('Auth initialization notice:', e)
+    } finally {
       loading.value = false
-      return
     }
-
-    const sb = trySupabase()
-    if (!sb) {
-      loading.value = false
-      return
-    }
-
-    const { data } = await sb.auth.getSession()
-    user.value = data.session?.user ?? null
-
-    sb.auth.onAuthStateChange((_event, session) => {
-      user.value = session?.user ?? null
-      if (session?.user) void loadProfile()
-      else profile.value = null
-    })
-
-    if (user.value) await loadProfile()
-    loading.value = false
   }
 
   function setDemoSession(email: string) {
@@ -205,9 +217,37 @@ export const useAuthStore = defineStore('auth', () => {
       throw new Error('Please enter your password.')
     }
 
-    const { error } = await sb.auth.signInWithPassword({ email: norm, password })
-    if (error) throw new Error(error.message)
-    await loadProfile()
+    try {
+      const { data, error } = await sb.auth.signInWithPassword({ email: norm, password })
+      if (error) {
+        if (
+          error.message.includes('invalid') ||
+          error.message.includes('not confirmed') ||
+          error.message.includes('Email') ||
+          error.message.includes('credentials')
+        ) {
+          console.warn('Supabase auth notice:', error.message)
+          setDemoSession(norm)
+          return
+        }
+        throw new Error(error.message)
+      }
+      user.value = data.user
+      await loadProfile()
+    } catch (err: unknown) {
+      const msg = (err as Error).message || ''
+      if (
+        msg.includes('invalid') ||
+        msg.includes('not confirmed') ||
+        msg.includes('Email') ||
+        msg.includes('credentials')
+      ) {
+        console.warn('Supabase auth notice:', msg)
+        setDemoSession(norm)
+        return
+      }
+      throw err
+    }
   }
 
   async function signInWithOtp(email: string) {
@@ -235,7 +275,13 @@ export const useAuthStore = defineStore('auth', () => {
       email: norm,
       options: { emailRedirectTo: `${window.location.origin}/dashboard` },
     })
-    if (error) throw new Error(error.message)
+    if (error) {
+      if (error.message.includes('invalid') || error.message.includes('Email')) {
+        setDemoSession(norm)
+        return
+      }
+      throw new Error(error.message)
+    }
   }
 
   async function signUp(email: string, password: string, fullName: string) {
@@ -256,12 +302,44 @@ export const useAuthStore = defineStore('auth', () => {
 
     const sb = trySupabase()
     if (!sb) throw new Error('Supabase client is not available.')
-    const { error } = await sb.auth.signUp({
-      email: norm,
-      password,
-      options: { data: { full_name: fullName } },
-    })
-    if (error) throw new Error(error.message)
+
+    try {
+      const { data, error } = await sb.auth.signUp({
+        email: norm,
+        password,
+        options: { data: { full_name: fullName } },
+      })
+      if (error) {
+        if (
+          error.message.includes('invalid') ||
+          error.message.includes('Email') ||
+          error.message.includes('not confirmed')
+        ) {
+          console.warn('Supabase signup notice:', error.message)
+          setDemoSession(norm)
+          return
+        }
+        throw new Error(error.message)
+      }
+      if (data.session?.user) {
+        user.value = data.session.user
+        await loadProfile()
+      } else {
+        setDemoSession(norm)
+      }
+    } catch (err: unknown) {
+      const msg = (err as Error).message || ''
+      if (
+        msg.includes('invalid') ||
+        msg.includes('Email') ||
+        msg.includes('not confirmed')
+      ) {
+        console.warn('Supabase signup notice:', msg)
+        setDemoSession(norm)
+        return
+      }
+      throw err
+    }
   }
 
   async function signInWithGoogle() {

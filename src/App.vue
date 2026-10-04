@@ -1,18 +1,26 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+import { useRoute } from 'vue-router'
 import AppShell from '@/components/AppShell.vue'
 import ToastHost from '@/components/ToastHost.vue'
 import ChatDock from '@/components/ChatDock.vue'
+
+const route = useRoute()
+const isPublicRoute = computed(() => route.meta?.public === true)
 </script>
 
 <template>
-  <AppShell>
+  <AppShell v-if="!isPublicRoute">
     <RouterView v-slot="{ Component }">
       <Transition name="fade" mode="out-in">
         <component :is="Component" />
       </Transition>
     </RouterView>
   </AppShell>
-  <ChatDock />
+  <div v-else class="min-h-screen bg-slate-900 text-slate-100">
+    <RouterView />
+  </div>
+  <ChatDock v-if="!isPublicRoute" />
   <ToastHost />
 </template>
 

@@ -171,8 +171,26 @@ export const DEFAULT_TEACHERS: Array<{
 
 export const useAdminStore = defineStore('admin', () => {
   const auth = useAuthStore()
-  const teachers = ref<TeacherAccess[]>([])
-  const topicStatuses = ref<TopicModuleStatus[]>([])
+  const teachers = ref<TeacherAccess[]>(
+    DEFAULT_TEACHERS.map((t, idx) => ({
+      ...t,
+      id: `default-teacher-${idx}`,
+      user_id: '',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })),
+  )
+  const topicStatuses = ref<TopicModuleStatus[]>(
+    DEFAULT_TOPICS.map((t, idx) => ({
+      ...t,
+      id: `default-topic-${idx}`,
+      user_id: '',
+      affected_rooms: [],
+      target_release_date: '',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })),
+  )
   const loading = ref(false)
   const initialised = ref(false)
 
@@ -205,53 +223,83 @@ export const useAdminStore = defineStore('admin', () => {
   })
 
   async function loadTeachers() {
-    const list = await teacherRepo.list(scope(), { orderBy: 'created_at', ascending: true })
-    if (list.length === 0) {
-      // Seed default staff
-      const seeded: TeacherAccess[] = []
-      for (const t of DEFAULT_TEACHERS) {
-        const item = await teacherRepo.create(scope(), {
-          ...t,
-          invited_at: new Date().toISOString(),
-          last_active_at: t.status === 'active' ? new Date().toISOString() : undefined,
-        })
-        seeded.push(item)
+    try {
+      const list = await teacherRepo.list(scope(), { orderBy: 'created_at', ascending: true })
+      if (list.length === 0) {
+        // Try remote seed if database allows it
+        try {
+          const seeded: TeacherAccess[] = []
+          for (const t of DEFAULT_TEACHERS) {
+            const item = await teacherRepo.create(scope(), {
+              ...t,
+              invited_at: new Date().toISOString(),
+              last_active_at: t.status === 'active' ? new Date().toISOString() : undefined,
+            })
+            seeded.push(item)
+          }
+          if (seeded.length > 0) teachers.value = seeded
+        } catch {
+          // If RLS prevents anonymous seeding, retain built-in defaults
+        }
+      } else {
+        teachers.value = list
       }
-      teachers.value = seeded
-    } else {
-      teachers.value = list
+    } catch {
+      // Retain defaults if remote query fails
     }
   }
 
   async function loadTopics() {
-    const list = await topicRepo.list(scope(), { orderBy: 'created_at', ascending: true })
-    if (list.length === 0) {
-      // Seed default topic statuses
-      const seeded: TopicModuleStatus[] = []
-      for (const t of DEFAULT_TOPICS) {
-        const item = await topicRepo.create(scope(), {
-          ...t,
-          affected_rooms: [],
-          target_release_date: '',
-        })
-        seeded.push(item)
-      }
-      topicStatuses.value = seeded
-    } else {
-      // Ensure any newly introduced topic in DEFAULT_TOPICS exists
-      const existingKeys = new Set(list.map(t => t.topic_key))
-      const missing = DEFAULT_TOPICS.filter(d => !existingKeys.has(d.topic_key))
-      if (missing.length > 0) {
-        for (const m of missing) {
-          const item = await topicRepo.create(scope(), {
-            ...m,
-            affected_rooms: [],
-            target_release_date: '',
-          })
-          list.push(item)
+    try {
+      const list = await topicRepo.list(scope(), { orderBy: 'created_at', ascending: true })
+      if (list.length === 0) {
+        // Try remote seed if database allows it
+        try {
+          const seeded: TopicModuleStatus[] = []
+          for (const t of DEFAULT_TOPICS) {
+            const item = await topicRepo.create(scope(), {
+              ...t,
+              affected_rooms: [],
+              target_release_date: '',
+            })
+            seeded.push(item)
+          }
+          if (seeded.length > 0) topicStatuses.value = seeded
+        } catch {
+          // If RLS prevents anonymous seeding, retain built-in defaults
         }
+      } else {
+        // Ensure any newly introduced topic in DEFAULT_TOPICS exists
+        const existingKeys = new Set(list.map(t => t.topic_key))
+        const missing = DEFAULT_TOPICS.filter(d => !existingKeys.has(d.topic_key))
+        if (missing.length > 0) {
+          try {
+            for (const m of missing) {
+              const item = await topicRepo.create(scope(), {
+                ...m,
+                affected_rooms: [],
+                target_release_date: '',
+              })
+              list.push(item)
+            }
+          } catch {
+            for (const m of missing) {
+              list.push({
+                ...m,
+                id: `default-topic-${m.topic_key}`,
+                user_id: '',
+                affected_rooms: [],
+                target_release_date: '',
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              })
+            }
+          }
+        }
+        topicStatuses.value = list
       }
-      topicStatuses.value = list
+    } catch {
+      // Retain defaults if remote query fails
     }
   }
 
@@ -259,7 +307,9 @@ export const useAdminStore = defineStore('admin', () => {
     if (initialised.value) return
     loading.value = true
     try {
-      await Promise.all([loadTeachers(), loadTopics()])
+      await Promise.allSettled([loadTeachers(), loadTopics()])
+      initialised.value = true
+    } catch {
       initialised.value = true
     } finally {
       loading.value = false

@@ -101,7 +101,11 @@ export const router = createRouter({
 router.beforeEach(async (to, _from, next) => {
   const auth = useAuthStore()
   if (auth.loading) {
-    await auth.init()
+    try {
+      await auth.init()
+    } catch (e) {
+      console.warn('Navigation guard auth init notice:', e)
+    }
   }
 
   const isPublic = to.meta.public === true
@@ -123,6 +127,10 @@ router.beforeEach(async (to, _from, next) => {
   }
 
   next()
+})
+
+router.onError(err => {
+  console.error('Vue Router navigation error:', err)
 })
 
 export const NAV_ITEMS = routes

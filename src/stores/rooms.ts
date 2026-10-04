@@ -16,9 +16,20 @@ export const DEFAULT_ROOM_NAMES = [
   'Wattles',
 ] as const
 
+export const DEFAULT_ROOM_RECORDS: RoomRecord[] = DEFAULT_ROOM_NAMES.map((name, i) => ({
+  id: `default-room-${i}`,
+  user_id: '',
+  name,
+  description: `${name} room learning community`,
+  sort_order: i,
+  is_active: true,
+  created_at: new Date().toISOString(),
+  updated_at: new Date().toISOString(),
+}))
+
 export const useRoomsStore = defineStore('rooms', () => {
   const auth = useAuthStore()
-  const rooms = ref<RoomRecord[]>([])
+  const rooms = ref<RoomRecord[]>([...DEFAULT_ROOM_RECORDS])
   const loading = ref(false)
   const initialised = ref(false)
 
@@ -40,22 +51,29 @@ export const useRoomsStore = defineStore('rooms', () => {
     try {
       const list = await roomsRepo.list(scope(), { orderBy: 'sort_order', ascending: true })
       if (list.length === 0) {
-        // Seed default rooms
-        const seeded: RoomRecord[] = []
-        for (let i = 0; i < DEFAULT_ROOM_NAMES.length; i++) {
-          const name = DEFAULT_ROOM_NAMES[i]
-          const created = await roomsRepo.create(scope(), {
-            name,
-            description: `${name} room learning community`,
-            sort_order: i,
-            is_active: true,
-          })
-          seeded.push(created)
+        // Try remote seed if permitted
+        try {
+          const seeded: RoomRecord[] = []
+          for (let i = 0; i < DEFAULT_ROOM_NAMES.length; i++) {
+            const name = DEFAULT_ROOM_NAMES[i]
+            const created = await roomsRepo.create(scope(), {
+              name,
+              description: `${name} room learning community`,
+              sort_order: i,
+              is_active: true,
+            })
+            seeded.push(created)
+          }
+          if (seeded.length > 0) rooms.value = seeded
+        } catch {
+          // If RLS prevents anonymous seeding, retain built-in defaults
         }
-        rooms.value = seeded
       } else {
         rooms.value = list
       }
+      initialised.value = true
+    } catch {
+      // Retain defaults if remote query fails
       initialised.value = true
     } finally {
       loading.value = false
