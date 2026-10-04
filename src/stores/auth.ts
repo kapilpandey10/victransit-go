@@ -9,6 +9,9 @@ import type { Profile } from '@/types'
 
 const PROFILE_KEY = 'profile'
 const DEMO_EMAIL_KEY = 'hadfield:v1:demo_user_email'
+export const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000 // 7 days in milliseconds (604,800,000 ms)
+export const LAST_ACTIVE_KEY = 'hadfield:v1:last_active_at'
+export const SESSION_EMAIL_KEY = 'hadfield:v1:session_email'
 export const ADMIN_EMAIL = 'info@pandeykapil.com.np'
 
 export const useAuthStore = defineStore('auth', () => {
@@ -22,6 +25,18 @@ export const useAuthStore = defineStore('auth', () => {
   const userRole = computed(() => {
     if (isAdmin.value) return 'System Administrator'
     return profile.value?.role || 'Educator'
+  })
+
+  /** Days remaining before 7-day session expires (refreshes whenever used) */
+  const sessionDaysRemaining = computed(() => {
+    if (!isAuthenticated.value) return 0
+    const raw = typeof window !== 'undefined' ? localStorage.getItem(LAST_ACTIVE_KEY) : null
+    if (!raw) return 7
+    const lastActive = Number(raw)
+    if (isNaN(lastActive) || lastActive <= 0) return 7
+    const elapsed = Date.now() - lastActive
+    const remaining = Math.max(0, SESSION_TTL_MS - elapsed)
+    return Math.ceil(remaining / (24 * 60 * 60 * 1000))
   })
 
   /** Scope id — falls back to the demo id so the UI stays usable. */
@@ -70,6 +85,44 @@ export const useAuthStore = defineStore('auth', () => {
     return false
   })
 
+  function isSessionExpired(): boolean {
+    if (typeof window === 'undefined' || !window.localStorage) return false
+    const raw = localStorage.getItem(LAST_ACTIVE_KEY)
+    if (!raw) return false
+    const lastActive = Number(raw)
+    if (isNaN(lastActive) || lastActive <= 0) return false
+    return Date.now() - lastActive > SESSION_TTL_MS
+  }
+
+  function touchSession() {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      localStorage.setItem(LAST_ACTIVE_KEY, String(Date.now()))
+    }
+  }
+
+  let listenersAttached = false
+  let lastTouchThrottle = 0
+
+  function attachActivityListeners() {
+    if (listenersAttached || typeof window === 'undefined') return
+    listenersAttached = true
+
+    const onUserActivity = () => {
+      const now = Date.now()
+      // Throttle touches to at most once every 5 minutes so we don't spam localStorage
+      if (now - lastTouchThrottle > 5 * 60 * 1000) {
+        lastTouchThrottle = now
+        if (user.value) {
+          touchSession()
+        }
+      }
+    }
+
+    window.addEventListener('click', onUserActivity, { passive: true })
+    window.addEventListener('keydown', onUserActivity, { passive: true })
+    window.addEventListener('touchstart', onUserActivity, { passive: true })
+  }
+
   async function init() {
     loading.value = true
     try {
@@ -78,15 +131,27 @@ export const useAuthStore = defineStore('auth', () => {
         await admin.init()
       }
 
+      // 7-Day Inactivity Check: If user hasn't opened/used the app for 7 consecutive days, log out:
+      if (isSessionExpired()) {
+        console.info('Session expired after 7 days of inactivity.')
+        await signOut()
+        return
+      }
+
+      const savedSessionEmail =
+        (typeof window !== 'undefined' && (localStorage.getItem(SESSION_EMAIL_KEY) || localStorage.getItem(DEMO_EMAIL_KEY))) ||
+        ''
+
       if (!isSupabaseConfigured) {
-        // Demo Mode: Check if a user was previously logged in
-        const savedEmail = localStorage.getItem(DEMO_EMAIL_KEY) || 'info@pandeykapil.com.np'
-        if (savedEmail) {
-          setDemoSession(savedEmail)
+        // Demo Mode: Check if an authorized user was previously signed in within 7 days
+        if (savedSessionEmail && admin.isEmailAuthorized(savedSessionEmail)) {
+          setDemoSession(savedSessionEmail)
+          touchSession()
         } else {
           user.value = null
           profile.value = null
         }
+        attachActivityListeners()
         return
       }
 
@@ -100,20 +165,26 @@ export const useAuthStore = defineStore('auth', () => {
 
       sb.auth.onAuthStateChange((_event, session) => {
         user.value = session?.user ?? null
-        if (session?.user) void loadProfile()
-        else profile.value = null
+        if (session?.user) {
+          touchSession()
+          void loadProfile()
+        } else if (!savedSessionEmail) {
+          profile.value = null
+        }
       })
 
       if (user.value) {
+        touchSession()
         await loadProfile()
       } else {
-        // If no cloud auth session is active, check if an authorized educator or director
-        // was previously signed in on this device:
-        const savedEmail = localStorage.getItem(DEMO_EMAIL_KEY)
-        if (savedEmail && admin.isEmailAuthorized(savedEmail)) {
-          setDemoSession(savedEmail)
+        // If Supabase token needs refresh or offline, but educator was authorized and logged in within 7 days:
+        if (savedSessionEmail && admin.isEmailAuthorized(savedSessionEmail)) {
+          setDemoSession(savedSessionEmail)
+          touchSession()
         }
       }
+
+      attachActivityListeners()
     } catch (e) {
       console.warn('Auth initialization notice:', e)
     } finally {
@@ -148,7 +219,11 @@ export const useAuthStore = defineStore('auth', () => {
       updated_at: new Date().toISOString(),
     }
     writeLocal(PROFILE_KEY, profile.value)
-    localStorage.setItem(DEMO_EMAIL_KEY, norm)
+    if (typeof window !== 'undefined' && window.localStorage) {
+      localStorage.setItem(DEMO_EMAIL_KEY, norm)
+      localStorage.setItem(SESSION_EMAIL_KEY, norm)
+      touchSession()
+    }
   }
 
   async function loadProfile() {
@@ -269,6 +344,11 @@ export const useAuthStore = defineStore('auth', () => {
         return
       }
       user.value = data.user
+      if (typeof window !== 'undefined' && window.localStorage) {
+        localStorage.setItem(SESSION_EMAIL_KEY, norm)
+        localStorage.setItem(DEMO_EMAIL_KEY, norm)
+        touchSession()
+      }
       await loadProfile()
     } catch (err: unknown) {
       const msg = (err as Error).message || ''
@@ -329,16 +409,30 @@ export const useAuthStore = defineStore('auth', () => {
 
   async function signOut() {
     const sb = trySupabase()
-    if (sb) await sb.auth.signOut()
+    if (sb) {
+      try {
+        await sb.auth.signOut()
+      } catch {
+        /* ignore */
+      }
+    }
     user.value = null
     profile.value = null
     removeLocal(PROFILE_KEY)
-    localStorage.removeItem(DEMO_EMAIL_KEY)
+    if (typeof window !== 'undefined' && window.localStorage) {
+      localStorage.removeItem(DEMO_EMAIL_KEY)
+      localStorage.removeItem(SESSION_EMAIL_KEY)
+      localStorage.removeItem(LAST_ACTIVE_KEY)
+    }
   }
 
   function resetDemoData() {
     removeLocal(PROFILE_KEY)
-    localStorage.removeItem(DEMO_EMAIL_KEY)
+    if (typeof window !== 'undefined' && window.localStorage) {
+      localStorage.removeItem(DEMO_EMAIL_KEY)
+      localStorage.removeItem(SESSION_EMAIL_KEY)
+      localStorage.removeItem(LAST_ACTIVE_KEY)
+    }
     profile.value = null
     user.value = null
     void init()
@@ -374,6 +468,8 @@ export const useAuthStore = defineStore('auth', () => {
     scopeId,
     displayName,
     demoMode,
+    sessionDaysRemaining,
+    touchSession,
     init,
     loadProfile,
     saveProfile,
