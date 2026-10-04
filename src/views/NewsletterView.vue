@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import MarkdownView from '@/components/MarkdownView.vue'
+import UnderDevelopmentBanner from '@/components/UnderDevelopmentBanner.vue'
 import { PROMPTS } from '@/data/prompts'
 import { useAiTask } from '@/composables/useAiTask'
 import { useContentStore } from '@/stores/content'
@@ -104,6 +105,8 @@ onMounted(() => content.loadNewsletters())
 
 <template>
   <div class="space-y-5">
+    <UnderDevelopmentBanner topic-key="newsletters" />
+
     <template v-if="mode === 'list'">
       <div class="flex items-center justify-between gap-3">
         <p class="text-sm text-slate-500 dark:text-slate-400">

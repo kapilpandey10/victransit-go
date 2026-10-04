@@ -125,9 +125,11 @@ create table if not exists public.learning_stories (
   analysis text default '',
   educator_reflection text default '',
   next_steps text default '',
+  family_link text default '',
+  educator_name text default '',
   eylf_outcome_ids int[] not null default '{}',
   theory_ids text[] not null default '{}',
-  photo_urls text[] not null default '{}',
+  photo_urls text[] default '{}',
   story_date date not null default current_date,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -137,7 +139,7 @@ create index if not exists learning_stories_project_idx
   on public.learning_stories (project_id);
 
 -- -------------------------------------------------------------------------
--- Activities (experiences planned inside or outside projects).
+-- Activities (experiences planned inside or outside projects / Programming Book).
 -- -------------------------------------------------------------------------
 create table if not exists public.activities (
   id uuid primary key default gen_random_uuid(),
@@ -148,6 +150,11 @@ create table if not exists public.activities (
   learning_intentions text default '',
   success_criteria text default '',
   extension_ideas text default '',
+  room text default '',
+  experience_type text default 'group',
+  date date default current_date,
+  photo_urls text[] default '{}',
+  educator_name text default '',
   eylf_outcome_ids int[] not null default '{}',
   theory_ids text[] not null default '{}',
   resources text default '',
@@ -251,3 +258,99 @@ create trigger newsletters_updated_at
 create trigger program_book_analyses_updated_at
   before update on public.program_book_analyses
   for each row execute function public.set_updated_at();
+
+-- -------------------------------------------------------------------------
+-- Weekly Wrap-Up — one draft per room + week (Mon–Fri daily notes and the
+-- AI-compiled Friday newsletter).
+-- -------------------------------------------------------------------------
+create table if not exists public.weekly_wrap_ups (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users (id) on delete cascade,
+  room text not null default '',
+  -- YYYY-MM-DD of the Monday (storage key per room+week)
+  week_start date not null,
+  -- Raw daily jot notes keyed mon..fri
+  days jsonb not null default '{}'::jsonb,
+  reminders text default '',
+  lost_found text default '',
+  extra_message text default '',
+  result text default '',
+  status text not null default 'draft' check (status in ('draft', 'generated')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists weekly_wrap_ups_user_week_idx
+  on public.weekly_wrap_ups (user_id, week_start);
+
+alter table public.weekly_wrap_ups enable row level security;
+
+drop policy if exists "own rows" on public.weekly_wrap_ups;
+create policy "own rows" on public.weekly_wrap_ups
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop trigger if exists weekly_wrap_ups_updated_at on public.weekly_wrap_ups;
+create trigger weekly_wrap_ups_updated_at
+  before update on public.weekly_wrap_ups
+  for each row execute function public.set_updated_at();
+
+-- -------------------------------------------------------------------------
+-- Teacher Access Control (admin-managed educator email invitations and roles)
+-- -------------------------------------------------------------------------
+create table if not exists public.teacher_access (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users (id) on delete cascade,
+  email text not null,
+  name text not null,
+  role text not null default 'Educator',
+  room text not null default 'All Rooms',
+  status text not null default 'active' check (status in ('active', 'invited', 'suspended')),
+  notes text default '',
+  invited_at timestamptz default now(),
+  last_active_at timestamptz default now(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists teacher_access_email_idx on public.teacher_access (email);
+alter table public.teacher_access enable row level security;
+drop policy if exists "own rows" on public.teacher_access;
+create policy "own rows" on public.teacher_access
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop trigger if exists teacher_access_updated_at on public.teacher_access;
+create trigger teacher_access_updated_at
+  before update on public.teacher_access
+  for each row execute function public.set_updated_at();
+
+-- -------------------------------------------------------------------------
+-- Topic Module Statuses (Under Development flags, leadership guidance notes)
+-- -------------------------------------------------------------------------
+create table if not exists public.topic_statuses (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users (id) on delete cascade,
+  topic_key text not null,
+  title text not null,
+  icon text not null default '📌',
+  route_path text not null,
+  status text not null default 'active' check (status in ('active', 'under_development', 'beta', 'disabled')),
+  leadership_notes text default '',
+  target_release_date text default '',
+  affected_rooms jsonb default '[]'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists topic_statuses_key_idx on public.topic_statuses (topic_key);
+alter table public.topic_statuses enable row level security;
+drop policy if exists "own rows" on public.topic_statuses;
+create policy "own rows" on public.topic_statuses
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop trigger if exists topic_statuses_updated_at on public.topic_statuses;
+create trigger topic_statuses_updated_at
+  before update on public.topic_statuses
+  for each row execute function public.set_updated_at();
+
+
+

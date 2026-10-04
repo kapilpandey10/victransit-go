@@ -88,6 +88,8 @@ export interface LearningStory extends Persisted {
   analysis: string | null
   educator_reflection: string | null
   next_steps: string | null
+  family_link?: string | null
+  educator_name?: string | null
   eylf_outcome_ids: EylfOutcomeId[]
   theory_ids: string[]
   photo_urls: string[]
@@ -104,6 +106,11 @@ export interface Activity extends Persisted {
   eylf_outcome_ids: EylfOutcomeId[]
   theory_ids: string[]
   resources: string | null
+  room?: string | null
+  experience_type?: 'group' | 'inquiry' | 'intentional' | 'spontaneous'
+  date?: string | null
+  photo_urls?: string[]
+  educator_name?: string | null
 }
 
 export interface Newsletter extends Persisted {
@@ -114,6 +121,24 @@ export interface Newsletter extends Persisted {
   date_to: string | null
   eylf_outcome_ids: EylfOutcomeId[]
   highlights: string[] | null
+}
+
+/** One room's Weekly Wrap-Up draft (Mon–Fri notes + compiled result). */
+export interface WeeklyWrapUp extends Persisted {
+  room: string
+  /** YYYY-MM-DD of the Monday (storage key). */
+  week_start: string
+  /** Raw daily jot notes, keyed mon…fri. */
+  days: Record<string, string>
+  /** Reminders, one per line. */
+  reminders: string
+  /** Lost & found items, one per line. */
+  lost_found: string
+  /** Extra message / announcement. */
+  extra_message: string
+  /** The AI-compiled wrap-up text (markdown). */
+  result: string
+  status: 'draft' | 'generated'
 }
 
 export interface ProgramBookAnalysis extends Persisted {
@@ -151,3 +176,38 @@ export interface Profile {
   created_at: string
   updated_at: string
 }
+
+export type TeacherRole =
+  | 'Centre Director'
+  | 'Educational Leader'
+  | 'Early Childhood Teacher'
+  | 'Room Leader'
+  | 'Educator'
+  | 'Relief Educator'
+
+export type TeacherAccessStatus = 'active' | 'invited' | 'suspended'
+
+export interface TeacherAccess extends Persisted {
+  email: string
+  name: string
+  role: TeacherRole
+  room: string
+  status: TeacherAccessStatus
+  notes?: string
+  invited_at?: string
+  last_active_at?: string
+}
+
+export type TopicStatus = 'active' | 'under_development' | 'beta' | 'disabled'
+
+export interface TopicModuleStatus extends Persisted {
+  topic_key: string
+  title: string
+  icon: string
+  route_path: string
+  status: TopicStatus
+  leadership_notes: string
+  target_release_date?: string
+  affected_rooms?: string[]
+}
+

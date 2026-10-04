@@ -3,6 +3,7 @@ import { computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { PLANNING_CYCLE } from '@/data/eylf'
 import { CHAT_STARTERS } from '@/data/prompts'
+import { useAdminStore } from '@/stores/admin'
 import { useAuthStore } from '@/stores/auth'
 import { useChatStore } from '@/stores/chat'
 import { useContentStore } from '@/stores/content'
@@ -10,6 +11,7 @@ import { useProjectStore } from '@/stores/project'
 import { useUiStore } from '@/stores/ui'
 
 const auth = useAuthStore()
+const admin = useAdminStore()
 const projects = useProjectStore()
 const content = useContentStore()
 const chat = useChatStore()
@@ -19,10 +21,12 @@ const router = useRouter()
 const TOOLS = [
   { path: '/projects', icon: '🗺️', title: 'Inquiry mind map', text: 'Brainstorm lines of inquiry and questions.' },
   { path: '/learning-outcomes', icon: '🎯', title: 'Learning outcomes', text: 'Map any activity to EYLF outcomes + theories.' },
+  { path: '/weekly-wrap-up', icon: '🗓️', title: 'Weekly wrap-up', text: 'Jot daily notes; compile Friday’s newsletter in one tap.' },
   { path: '/learning-stories', icon: '📖', title: 'Learning stories', text: 'Write a warm, EYLF-linked story from your notes.' },
   { path: '/newsletters', icon: '📰', title: 'Newsletter', text: 'Draft a family newsletter from your highlights.' },
   { path: '/program-book', icon: '🔍', title: 'Program analysis', text: 'Critically reflect on your program documentation.' },
   { path: '/theories', icon: '📚', title: 'Theories & Reggio', text: 'Browse theorists and the Reggio Emilia lens.' },
+  { path: '/admin', icon: '🛡️', title: 'Admin dashboard', text: 'Teacher email access & module development status.' },
 ]
 
 const TIPS = [
@@ -51,6 +55,7 @@ function askAi(index = 0) {
 }
 
 onMounted(() => {
+  void admin.init()
   void projects.loadProjects()
   void projects.loadStories()
   void content.loadNewsletters()
@@ -119,7 +124,7 @@ onMounted(() => {
           <button
             v-for="tool in TOOLS"
             :key="tool.path"
-            class="card flex items-start gap-3 text-left transition hover:-translate-y-0.5 hover:shadow-lift"
+            class="card flex items-start gap-3 text-left transition hover:-translate-y-0.5 hover:shadow-lift relative"
             @click="router.push(tool.path)"
           >
             <span
@@ -127,8 +132,16 @@ onMounted(() => {
             >
               {{ tool.icon }}
             </span>
-            <span class="min-w-0">
-              <span class="block text-sm font-bold">{{ tool.title }}</span>
+            <span class="min-w-0 flex-1">
+              <span class="flex items-center justify-between gap-1">
+                <span class="block text-sm font-bold truncate">{{ tool.title }}</span>
+                <span
+                  v-if="admin.isTopicUnderDevelopment(tool.path)"
+                  class="shrink-0 rounded-full bg-amber-100 dark:bg-amber-950/70 border border-amber-300 dark:border-amber-700 px-1.5 py-0.2 text-[9px] font-black uppercase tracking-wider text-amber-800 dark:text-amber-200"
+                >
+                  🚧 Under Dev
+                </span>
+              </span>
               <span class="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">
                 {{ tool.text }}
               </span>

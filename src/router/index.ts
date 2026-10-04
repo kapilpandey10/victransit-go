@@ -32,6 +32,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: 'Learning stories', icon: '📖' },
   },
   {
+    path: '/weekly-wrap-up',
+    name: 'weekly-wrap-up',
+    component: () => import('@/views/WeeklyWrapUpView.vue'),
+    meta: { title: 'Weekly wrap-up', icon: '🗓️' },
+  },
+  {
     path: '/newsletters',
     name: 'newsletters',
     component: () => import('@/views/NewsletterView.vue'),
@@ -54,6 +60,12 @@ const routes: RouteRecordRaw[] = [
     name: 'eylf',
     component: () => import('@/views/EylfView.vue'),
     meta: { title: 'EYLF reference', icon: '🇦🇺' },
+  },
+  {
+    path: '/admin',
+    name: 'admin',
+    component: () => import('@/views/AdminDashboardView.vue'),
+    meta: { title: 'Admin dashboard', icon: '🛡️' },
   },
   {
     path: '/settings',

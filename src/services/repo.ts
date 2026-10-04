@@ -247,4 +247,7 @@ export const TABLES = {
   activities: 'activities',
   newsletters: 'newsletters',
   programAnalyses: 'program_book_analyses',
+  weeklyWrapUps: 'weekly_wrap_ups',
+  teacherAccess: 'teacher_access',
+  topicStatuses: 'topic_statuses',
 } as const

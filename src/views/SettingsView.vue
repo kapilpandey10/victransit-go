@@ -104,9 +104,27 @@ function clearLocalData() {
 </script>
 
 <template>
-  <div class="grid gap-5 lg:grid-cols-2">
-    <section class="card space-y-4">
-      <h2 class="font-display text-base font-extrabold">👩‍🏫 Your profile</h2>
+  <div class="space-y-5">
+    <!-- Admin Shortcut Banner -->
+    <div class="rounded-2xl border border-brand-200 dark:border-brand-900 bg-brand-50/70 dark:bg-brand-950/40 p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
+      <div class="space-y-1">
+        <p class="font-display font-extrabold text-sm sm:text-base text-brand-950 dark:text-brand-100 flex items-center gap-2">
+          <span>🛡️</span>
+          <span>Educational Leadership & Admin Dashboard</span>
+        </p>
+        <p class="text-xs text-brand-800/90 dark:text-brand-300">
+          Grant educator email access, manage room assignments, and configure module Under Development statuses.
+        </p>
+      </div>
+      <RouterLink to="/admin" class="btn-primary text-xs shrink-0 self-start sm:self-auto flex items-center gap-1.5 font-bold">
+        <span>Open Admin Dashboard</span>
+        <span>&rarr;</span>
+      </RouterLink>
+    </div>
+
+    <div class="grid gap-5 lg:grid-cols-2">
+      <section class="card space-y-4">
+        <h2 class="font-display text-base font-extrabold">👩‍🏫 Your profile</h2>
       <div class="grid gap-4 sm:grid-cols-2">
         <div>
           <label class="field-label" for="pf-name">Full name</label>
@@ -337,5 +355,6 @@ function clearLocalData() {
         <button class="btn-danger" @click="clearLocalData()">Clear all local data</button>
       </div>
     </section>
+  </div>
   </div>
 </template>

@@ -1,0 +1,911 @@
+<script setup lang="ts">
+import { computed, onMounted, reactive, ref } from 'vue'
+import { ROOMS } from '@/data/rooms'
+import { useAdminStore } from '@/stores/admin'
+import { useAuthStore } from '@/stores/auth'
+import { useUiStore } from '@/stores/ui'
+import type { TeacherAccess, TeacherAccessStatus, TeacherRole, TopicModuleStatus, TopicStatus } from '@/types'
+
+const admin = useAdminStore()
+const auth = useAuthStore()
+const ui = useUiStore()
+
+const activeTab = ref<'teachers' | 'topics' | 'governance'>('teachers')
+
+onMounted(async () => {
+  await admin.init()
+})
+
+// ---------------------------------------------------------------------------
+// Teacher Search & Filtering
+// ---------------------------------------------------------------------------
+const searchQuery = ref('')
+const filterRoom = ref<string>('all')
+const filterStatus = ref<string>('all')
+
+const ROLES: TeacherRole[] = [
+  'Centre Director',
+  'Educational Leader',
+  'Early Childhood Teacher',
+  'Room Leader',
+  'Educator',
+  'Relief Educator',
+]
+
+const filteredTeachers = computed(() => {
+  return admin.teachers.filter(t => {
+    const q = searchQuery.value.toLowerCase().trim()
+    const matchesSearch =
+      !q ||
+      t.email.toLowerCase().includes(q) ||
+      t.name.toLowerCase().includes(q) ||
+      t.role.toLowerCase().includes(q) ||
+      t.room.toLowerCase().includes(q)
+
+    const matchesRoom =
+      filterRoom.value === 'all' ||
+      (filterRoom.value === 'All Rooms' ? t.room === 'All Rooms' : t.room.includes(filterRoom.value))
+
+    const matchesStatus = filterStatus.value === 'all' || t.status === filterStatus.value
+
+    return matchesSearch && matchesRoom && matchesStatus
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Add / Edit Teacher Modal State
+// ---------------------------------------------------------------------------
+const showTeacherModal = ref(false)
+const editingTeacherId = ref<string | null>(null)
+const teacherFormSubmitting = ref(false)
+
+const teacherForm = reactive({
+  email: '',
+  name: '',
+  role: 'Educator' as TeacherRole,
+  room: 'All Rooms',
+  status: 'active' as TeacherAccessStatus,
+  notes: '',
+})
+
+function openAddTeacherModal() {
+  editingTeacherId.value = null
+  teacherForm.email = ''
+  teacherForm.name = ''
+  teacherForm.role = 'Educator'
+  teacherForm.room = 'All Rooms'
+  teacherForm.status = 'active'
+  teacherForm.notes = ''
+  showTeacherModal.value = true
+}
+
+function openEditTeacherModal(teacher: TeacherAccess) {
+  editingTeacherId.value = teacher.id
+  teacherForm.email = teacher.email
+  teacherForm.name = teacher.name
+  teacherForm.role = teacher.role
+  teacherForm.room = teacher.room
+  teacherForm.status = teacher.status
+  teacherForm.notes = teacher.notes || ''
+  showTeacherModal.value = true
+}
+
+async function handleSaveTeacher() {
+  if (!teacherForm.email.trim()) {
+    ui.showToast('Please enter an educator email address.', 'error')
+    return
+  }
+  teacherFormSubmitting.value = true
+  try {
+    if (editingTeacherId.value) {
+      await admin.updateTeacher(editingTeacherId.value, {
+        email: teacherForm.email,
+        name: teacherForm.name,
+        role: teacherForm.role,
+        room: teacherForm.room,
+        status: teacherForm.status,
+        notes: teacherForm.notes,
+      })
+      ui.showToast('Teacher access updated successfully.', 'success')
+    } else {
+      await admin.addTeacher({
+        email: teacherForm.email,
+        name: teacherForm.name,
+        role: teacherForm.role,
+        room: teacherForm.room,
+        status: teacherForm.status,
+        notes: teacherForm.notes,
+      })
+      ui.showToast(`Access granted for ${teacherForm.email}.`, 'success')
+    }
+    showTeacherModal.value = false
+  } catch (err) {
+    ui.showToast((err as Error).message, 'error')
+  } finally {
+    teacherFormSubmitting.value = false
+  }
+}
+
+async function handleDeleteTeacher(teacher: TeacherAccess) {
+  if (!confirm(`Are you sure you want to revoke access for ${teacher.name} (${teacher.email})?`)) {
+    return
+  }
+  try {
+    await admin.deleteTeacher(teacher.id)
+    ui.showToast(`Access revoked for ${teacher.email}.`, 'success')
+  } catch (err) {
+    ui.showToast((err as Error).message, 'error')
+  }
+}
+
+async function handleToggleStatus(teacher: TeacherAccess, newStatus: TeacherAccessStatus) {
+  try {
+    await admin.setTeacherStatus(teacher.id, newStatus)
+    ui.showToast(`Updated status for ${teacher.name} to ${newStatus}.`, 'success')
+  } catch (err) {
+    ui.showToast((err as Error).message, 'error')
+  }
+}
+
+function copyInviteLink(email: string) {
+  const url = `${window.location.origin}/?email=${encodeURIComponent(email)}`
+  navigator.clipboard.writeText(url)
+  ui.showToast(`Invitation access link copied for ${email}`, 'success')
+}
+
+// ---------------------------------------------------------------------------
+// Topic Status Management
+// ---------------------------------------------------------------------------
+const editingNotes = reactive<Record<string, string>>({})
+const savingNotes = reactive<Record<string, boolean>>({})
+
+function getTopicNotes(topic: TopicModuleStatus): string {
+  if (editingNotes[topic.topic_key] !== undefined) {
+    return editingNotes[topic.topic_key]
+  }
+  return topic.leadership_notes || ''
+}
+
+function onNotesInput(topicKey: string, val: string) {
+  editingNotes[topicKey] = val
+}
+
+async function handleSetTopicStatus(topic: TopicModuleStatus, status: TopicStatus) {
+  try {
+    await admin.setTopicStatus(topic.topic_key, status)
+    ui.showToast(`${topic.title} status updated to ${status.replace('_', ' ').toUpperCase()}.`, 'success')
+  } catch (err) {
+    ui.showToast((err as Error).message, 'error')
+  }
+}
+
+async function handleSaveTopicNotes(topic: TopicModuleStatus) {
+  const notes = editingNotes[topic.topic_key]
+  if (notes === undefined) return
+  savingNotes[topic.topic_key] = true
+  try {
+    await admin.updateTopic(topic.id, { leadership_notes: notes })
+    ui.showToast(`Leadership notes saved for ${topic.title}.`, 'success')
+  } catch (err) {
+    ui.showToast((err as Error).message, 'error')
+  } finally {
+    savingNotes[topic.topic_key] = false
+  }
+}
+
+// Room list with "All Rooms" prepended
+const roomOptions = computed(() => ['All Rooms', ...ROOMS])
+</script>
+
+<template>
+  <div class="space-y-6 pb-12">
+    <!-- Header banner -->
+    <header class="rounded-3xl bg-slate-900 p-6 sm:p-8 text-white shadow-lift relative overflow-hidden">
+      <div class="absolute -right-8 -bottom-8 opacity-10 text-9xl pointer-events-none select-none">
+        🛡️
+      </div>
+
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 relative z-10">
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="rounded-full bg-brand-500/20 text-brand-300 px-3 py-1 text-xs font-bold uppercase tracking-wider border border-brand-500/30">
+              Service Leadership & Administration
+            </span>
+            <span class="rounded-full bg-emerald-500/20 text-emerald-300 px-2.5 py-0.5 text-xs font-semibold">
+              ACECQA QA7 Governance
+            </span>
+          </div>
+          <h1 class="mt-2 font-display text-2xl sm:text-3xl font-black tracking-tight">
+            Hadfield ELC — Admin Dashboard
+          </h1>
+          <p class="mt-1 text-sm text-slate-300 max-w-2xl leading-relaxed">
+            Logged in as <span class="text-white font-bold">{{ auth.displayName }}</span>. Authorize teacher emails, assign room educators, and set pedagogical modules to
+            <span class="text-amber-300 font-bold underline">Under Development</span> with live guidance notes.
+          </p>
+        </div>
+
+        <div class="flex items-center gap-3">
+          <button
+            type="button"
+            class="btn bg-brand-600 hover:bg-brand-500 text-white font-bold shadow-soft flex items-center gap-2"
+            @click="openAddTeacherModal"
+          >
+            <span>➕</span>
+            <span>Grant Teacher Access</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Quick Metrics Grid -->
+      <div class="mt-6 grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div class="rounded-2xl bg-white/5 border border-white/10 p-3 sm:p-4">
+          <p class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Total Teachers</p>
+          <p class="mt-1 text-2xl font-black text-white">{{ admin.teachers.length }}</p>
+          <p class="text-xs text-slate-400">Authorized emails</p>
+        </div>
+
+        <div class="rounded-2xl bg-white/5 border border-white/10 p-3 sm:p-4">
+          <p class="text-[11px] font-bold uppercase tracking-wider text-emerald-400">Active Staff</p>
+          <p class="mt-1 text-2xl font-black text-emerald-300">{{ admin.activeTeachers.length }}</p>
+          <p class="text-xs text-slate-400">Full platform access</p>
+        </div>
+
+        <div class="rounded-2xl bg-white/5 border border-white/10 p-3 sm:p-4">
+          <p class="text-[11px] font-bold uppercase tracking-wider text-amber-400">Pending Invites</p>
+          <p class="mt-1 text-2xl font-black text-amber-300">{{ admin.invitedTeachers.length }}</p>
+          <p class="text-xs text-slate-400">Awaiting activation</p>
+        </div>
+
+        <div class="rounded-2xl bg-white/5 border border-white/10 p-3 sm:p-4">
+          <p class="text-[11px] font-bold uppercase tracking-wider text-orange-400">Under Development</p>
+          <p class="mt-1 text-2xl font-black text-orange-300">{{ admin.underDevTopics.length }}</p>
+          <p class="text-xs text-slate-400">Modules marked WIP</p>
+        </div>
+      </div>
+    </header>
+
+    <!-- Navigation Tabs -->
+    <div class="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2">
+      <button
+        type="button"
+        class="flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm transition"
+        :class="
+          activeTab === 'teachers'
+            ? 'bg-brand-600 text-white shadow-sm'
+            : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+        "
+        @click="activeTab = 'teachers'"
+      >
+        <span>👥</span>
+        <span>Teacher Access Control ({{ admin.teachers.length }})</span>
+      </button>
+
+      <button
+        type="button"
+        class="flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm transition"
+        :class="
+          activeTab === 'topics'
+            ? 'bg-brand-600 text-white shadow-sm'
+            : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+        "
+        @click="activeTab = 'topics'"
+      >
+        <span>🚧</span>
+        <span>Module Development Status ({{ admin.topicStatuses.length }})</span>
+        <span
+          v-if="admin.underDevTopics.length > 0"
+          class="rounded-full bg-amber-500 text-slate-950 px-2 py-0.5 text-[10px] font-extrabold"
+        >
+          {{ admin.underDevTopics.length }} WIP
+        </span>
+      </button>
+
+      <button
+        type="button"
+        class="flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm transition"
+        :class="
+          activeTab === 'governance'
+            ? 'bg-brand-600 text-white shadow-sm'
+            : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+        "
+        @click="activeTab = 'governance'"
+      >
+        <span>🏛️</span>
+        <span>NQF Governance</span>
+      </button>
+    </div>
+
+    <!-- ===================================================================== -->
+    <!-- TAB 1: TEACHER ACCESS CONTROL -->
+    <!-- ===================================================================== -->
+    <section v-if="activeTab === 'teachers'" class="space-y-4">
+      <!-- Search and filter toolbar -->
+      <div class="card p-4 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+        <div class="flex-1 relative">
+          <input
+            v-model="searchQuery"
+            type="search"
+            placeholder="Search teacher by name, email, or role..."
+            class="input pl-9 w-full"
+          />
+          <span class="absolute left-3 top-2.5 text-slate-400">🔍</span>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+          <select v-model="filterRoom" class="select text-xs">
+            <option value="all">All Rooms</option>
+            <option v-for="room in roomOptions" :key="room" :value="room">{{ room }}</option>
+          </select>
+
+          <select v-model="filterStatus" class="select text-xs">
+            <option value="all">All Statuses</option>
+            <option value="active">Active</option>
+            <option value="invited">Invited</option>
+            <option value="suspended">Suspended</option>
+          </select>
+
+          <button
+            type="button"
+            class="btn-primary text-xs flex items-center gap-1.5"
+            @click="openAddTeacherModal"
+          >
+            <span>➕</span>
+            <span>Add Teacher</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Teachers List / Table -->
+      <div class="card overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-sm">
+            <thead class="bg-slate-50 dark:bg-slate-900/60 border-b border-slate-200 dark:border-slate-800 text-[11px] uppercase tracking-wider text-slate-500 font-bold">
+              <tr>
+                <th class="py-3.5 px-4">Educator / Email</th>
+                <th class="py-3.5 px-4">Role</th>
+                <th class="py-3.5 px-4">Room Assignment</th>
+                <th class="py-3.5 px-4">Status</th>
+                <th class="py-3.5 px-4">Date Added</th>
+                <th class="py-3.5 px-4 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100 dark:divide-slate-800/80">
+              <tr
+                v-for="t in filteredTeachers"
+                :key="t.id"
+                class="hover:bg-slate-50/50 dark:hover:bg-slate-800/40 transition"
+              >
+                <!-- Name & Email -->
+                <td class="py-3.5 px-4">
+                  <div class="flex items-center gap-3">
+                    <div
+                      class="grid h-10 w-10 shrink-0 place-items-center rounded-xl font-bold text-white shadow-soft"
+                      :class="
+                        t.role === 'Centre Director'
+                          ? 'bg-rose-600'
+                          : t.role === 'Educational Leader'
+                          ? 'bg-brand-600'
+                          : t.role === 'Early Childhood Teacher'
+                          ? 'bg-indigo-600'
+                          : 'bg-emerald-600'
+                      "
+                    >
+                      {{ t.name.charAt(0).toUpperCase() }}
+                    </div>
+                    <div class="min-w-0">
+                      <p class="font-bold text-slate-900 dark:text-slate-100 truncate">
+                        {{ t.name }}
+                      </p>
+                      <div class="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+                        <span class="truncate">{{ t.email }}</span>
+                        <button
+                          type="button"
+                          class="hover:text-brand-600 dark:hover:text-brand-400"
+                          title="Copy email"
+                          @click="copyInviteLink(t.email)"
+                        >
+                          📋
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </td>
+
+                <!-- Role -->
+                <td class="py-3.5 px-4 whitespace-nowrap">
+                  <span
+                    class="rounded-lg px-2.5 py-1 text-xs font-bold"
+                    :class="
+                      t.role === 'Centre Director'
+                        ? 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300'
+                        : t.role === 'Educational Leader'
+                        ? 'bg-brand-100 text-brand-800 dark:bg-brand-950/60 dark:text-brand-300'
+                        : t.role === 'Early Childhood Teacher'
+                        ? 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300'
+                        : 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300'
+                    "
+                  >
+                    {{ t.role }}
+                  </span>
+                </td>
+
+                <!-- Room Assignment -->
+                <td class="py-3.5 px-4 whitespace-nowrap">
+                  <span class="rounded-md bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 px-2 py-0.5 text-xs font-semibold">
+                    {{ t.room }}
+                  </span>
+                </td>
+
+                <!-- Status -->
+                <td class="py-3.5 px-4 whitespace-nowrap">
+                  <div class="flex items-center gap-1.5">
+                    <span
+                      class="h-2 w-2 rounded-full"
+                      :class="
+                        t.status === 'active'
+                          ? 'bg-emerald-500 ring-2 ring-emerald-200'
+                          : t.status === 'invited'
+                          ? 'bg-amber-500 ring-2 ring-amber-200'
+                          : 'bg-slate-400'
+                      "
+                    />
+                    <span
+                      class="text-xs font-bold uppercase tracking-wider"
+                      :class="
+                        t.status === 'active'
+                          ? 'text-emerald-700 dark:text-emerald-400'
+                          : t.status === 'invited'
+                          ? 'text-amber-700 dark:text-amber-400'
+                          : 'text-slate-500'
+                      "
+                    >
+                      {{ t.status }}
+                    </span>
+                  </div>
+                </td>
+
+                <!-- Date -->
+                <td class="py-3.5 px-4 text-xs text-slate-500 whitespace-nowrap">
+                  {{ new Date(t.created_at).toLocaleDateString('en-AU', { month: 'short', day: 'numeric', year: 'numeric' }) }}
+                </td>
+
+                <!-- Actions -->
+                <td class="py-3.5 px-4 text-right whitespace-nowrap">
+                  <div class="flex items-center justify-end gap-1">
+                    <!-- Status quick toggles -->
+                    <button
+                      v-if="t.status !== 'active'"
+                      type="button"
+                      class="btn-ghost p-1.5 text-xs text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/50"
+                      title="Activate educator"
+                      @click="handleToggleStatus(t, 'active')"
+                    >
+                      ✅ Activate
+                    </button>
+                    <button
+                      v-if="t.status === 'active'"
+                      type="button"
+                      class="btn-ghost p-1.5 text-xs text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+                      title="Suspend access"
+                      @click="handleToggleStatus(t, 'suspended')"
+                    >
+                      ⏸️ Suspend
+                    </button>
+
+                    <button
+                      type="button"
+                      class="btn-ghost p-1.5 text-xs"
+                      title="Copy access link"
+                      @click="copyInviteLink(t.email)"
+                    >
+                      🔗
+                    </button>
+
+                    <button
+                      type="button"
+                      class="btn-ghost p-1.5 text-xs"
+                      title="Edit teacher details"
+                      @click="openEditTeacherModal(t)"
+                    >
+                      ✏️
+                    </button>
+
+                    <button
+                      type="button"
+                      class="btn-ghost p-1.5 text-xs text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50"
+                      title="Revoke access"
+                      @click="handleDeleteTeacher(t)"
+                    >
+                      🗑️
+                    </button>
+                  </div>
+                </td>
+              </tr>
+
+              <tr v-if="filteredTeachers.length === 0">
+                <td colspan="6" class="py-12 text-center text-slate-500">
+                  <p class="text-3xl mb-2">🔍</p>
+                  <p class="font-bold text-slate-800 dark:text-slate-200">No teachers found</p>
+                  <p class="text-xs mt-1">Try refining your search query or room filter.</p>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================================================================== -->
+    <!-- TAB 2: TOPIC & MODULE STATUS MANAGEMENT -->
+    <!-- ===================================================================== -->
+    <section v-if="activeTab === 'topics'" class="space-y-5">
+      <!-- Leadership guidance banner -->
+      <div class="card bg-amber-500/10 border-amber-300 dark:border-amber-700/60 p-4 sm:p-5 flex items-start gap-4">
+        <div class="text-3xl">🚧</div>
+        <div class="space-y-1">
+          <h2 class="font-display font-extrabold text-amber-950 dark:text-amber-200 text-base">
+            Pedagogical Module Development Control
+          </h2>
+          <p class="text-xs sm:text-sm text-amber-900/90 dark:text-amber-200/90 leading-relaxed">
+            When you switch a module status to <strong>Under Development</strong>, the app instantly displays a
+            <span class="rounded bg-amber-200/80 dark:bg-amber-900/60 px-1.5 py-0.5 font-bold">🚧 WIP</span>
+            chip in the navigation sidebar, and presents your leadership notes as an advisory banner directly to teachers on that screen.
+          </p>
+        </div>
+      </div>
+
+      <!-- Modules Grid -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div
+          v-for="topic in admin.topicStatuses"
+          :key="topic.id"
+          class="card p-5 space-y-4 border transition hover:shadow-soft"
+          :class="
+            topic.status === 'under_development'
+              ? 'border-amber-300 dark:border-amber-700 bg-amber-500/5'
+              : topic.status === 'beta'
+              ? 'border-violet-300 dark:border-violet-700 bg-violet-500/5'
+              : 'border-slate-200 dark:border-slate-800'
+          "
+        >
+          <!-- Card Header -->
+          <div class="flex items-start justify-between gap-3">
+            <div class="flex items-center gap-3">
+              <div
+                class="grid h-12 w-12 shrink-0 place-items-center rounded-2xl text-2xl shadow-soft"
+                :class="
+                  topic.status === 'under_development'
+                    ? 'bg-amber-500 text-white'
+                    : topic.status === 'beta'
+                    ? 'bg-violet-600 text-white'
+                    : 'bg-brand-600 text-white'
+                "
+              >
+                {{ topic.icon }}
+              </div>
+              <div>
+                <div class="flex items-center gap-2">
+                  <h3 class="font-display font-extrabold text-base text-slate-900 dark:text-slate-100">
+                    {{ topic.title }}
+                  </h3>
+                  <RouterLink
+                    :to="topic.route_path"
+                    class="text-xs font-semibold text-brand-600 dark:text-brand-400 hover:underline"
+                    target="_blank"
+                    title="Open view in new tab"
+                  >
+                    View ↗
+                  </RouterLink>
+                </div>
+                <p class="text-xs text-slate-500 dark:text-slate-400 font-mono">
+                  Route: {{ topic.route_path }}
+                </p>
+              </div>
+            </div>
+
+            <!-- Current status badge -->
+            <div>
+              <span
+                class="rounded-full px-2.5 py-1 text-xs font-black uppercase tracking-wider inline-flex items-center gap-1"
+                :class="
+                  topic.status === 'active'
+                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                    : topic.status === 'under_development'
+                    ? 'bg-amber-100 text-amber-900 dark:bg-amber-950/60 dark:text-amber-200'
+                    : topic.status === 'beta'
+                    ? 'bg-violet-100 text-violet-900 dark:bg-violet-950/60 dark:text-violet-200'
+                    : 'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-400'
+                "
+              >
+                <span v-if="topic.status === 'active'">🟢 Active</span>
+                <span v-else-if="topic.status === 'under_development'">🚧 Under Dev</span>
+                <span v-else-if="topic.status === 'beta'">🧪 Beta</span>
+                <span v-else>⏸️ Disabled</span>
+              </span>
+            </div>
+          </div>
+
+          <!-- Status Switcher Pill Bar -->
+          <div class="space-y-1.5">
+            <label class="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+              Module Access Status
+            </label>
+            <div class="grid grid-cols-4 gap-1.5 p-1 rounded-xl bg-slate-100 dark:bg-slate-800">
+              <button
+                type="button"
+                class="py-1.5 px-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1"
+                :class="
+                  topic.status === 'active'
+                    ? 'bg-white dark:bg-slate-700 text-emerald-700 dark:text-emerald-300 shadow-sm'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                "
+                @click="handleSetTopicStatus(topic, 'active')"
+              >
+                <span>🟢</span>
+                <span>Active</span>
+              </button>
+
+              <button
+                type="button"
+                class="py-1.5 px-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1"
+                :class="
+                  topic.status === 'under_development'
+                    ? 'bg-amber-500 text-white shadow-sm'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                "
+                @click="handleSetTopicStatus(topic, 'under_development')"
+              >
+                <span>🚧</span>
+                <span>Under Dev</span>
+              </button>
+
+              <button
+                type="button"
+                class="py-1.5 px-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1"
+                :class="
+                  topic.status === 'beta'
+                    ? 'bg-violet-600 text-white shadow-sm'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                "
+                @click="handleSetTopicStatus(topic, 'beta')"
+              >
+                <span>🧪</span>
+                <span>Beta</span>
+              </button>
+
+              <button
+                type="button"
+                class="py-1.5 px-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1"
+                :class="
+                  topic.status === 'disabled'
+                    ? 'bg-slate-400 text-white shadow-sm'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                "
+                @click="handleSetTopicStatus(topic, 'disabled')"
+              >
+                <span>⏸️</span>
+                <span>Pause</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Leadership Notes / Instructions to Educators -->
+          <div class="space-y-1.5">
+            <div class="flex items-center justify-between">
+              <label class="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                Educational Leadership Note (Shown to Teachers)
+              </label>
+              <button
+                type="button"
+                class="text-xs font-bold text-brand-600 hover:underline disabled:opacity-50"
+                :disabled="savingNotes[topic.topic_key]"
+                @click="handleSaveTopicNotes(topic)"
+              >
+                {{ savingNotes[topic.topic_key] ? 'Saving...' : 'Save Note' }}
+              </button>
+            </div>
+            <textarea
+              :value="getTopicNotes(topic)"
+              rows="2"
+              class="textarea text-xs w-full leading-relaxed"
+              placeholder="e.g. Currently reviewing with educational leader. Focus on EYLF V2.0 sub-outcome 4.2."
+              @input="e => onNotesInput(topic.topic_key, (e.target as HTMLTextAreaElement).value)"
+            />
+          </div>
+
+          <!-- Preview chip for educators -->
+          <div
+            v-if="topic.status === 'under_development'"
+            class="rounded-xl border border-amber-300/80 bg-amber-50 dark:bg-amber-950/40 p-3 text-xs text-amber-900 dark:text-amber-200 space-y-1"
+          >
+            <div class="flex items-center gap-1.5 font-bold">
+              <span>👁️ Teacher Preview Banner:</span>
+            </div>
+            <p class="italic text-[11px] opacity-90">
+              "{{ getTopicNotes(topic) || 'This module is currently under active development.' }}"
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================================================================== -->
+    <!-- TAB 3: NQF GOVERNANCE & CENTRE DETAILS -->
+    <!-- ===================================================================== -->
+    <section v-if="activeTab === 'governance'" class="space-y-4">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <!-- Quality Area 7 Oversight -->
+        <div class="card p-5 space-y-3">
+          <div class="flex items-center gap-2">
+            <span class="text-2xl">🏛️</span>
+            <div>
+              <h3 class="font-display font-extrabold text-base">Quality Area 7 — Governance & Leadership</h3>
+              <p class="text-xs text-slate-500">ACECQA National Quality Standard compliance</p>
+            </div>
+          </div>
+          <ul class="space-y-2 text-xs text-slate-600 dark:text-slate-300">
+            <li class="flex items-start gap-2">
+              <span class="text-emerald-500">✓</span>
+              <span><strong>Standard 7.1:</strong> Governance arrangements facilitate effective operation (educator credentials & email auth).</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-emerald-500">✓</span>
+              <span><strong>Standard 7.2:</strong> Educational leadership establishes a culture of continuous reflection and pedagogical enquiry.</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="text-emerald-500">✓</span>
+              <span><strong>Quality Improvement Plan (QIP):</strong> Under development module notes align with our centre goals for 2026.</span>
+            </li>
+          </ul>
+        </div>
+
+        <!-- Room Allocation Matrix -->
+        <div class="card p-5 space-y-3">
+          <div class="flex items-center gap-2">
+            <span class="text-2xl">🏫</span>
+            <div>
+              <h3 class="font-display font-extrabold text-base">Room Allocation Overview</h3>
+              <p class="text-xs text-slate-500">Staff distribution across rooms</p>
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-2 text-xs">
+            <div
+              v-for="room in ROOMS"
+              :key="room"
+              class="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 flex items-center justify-between"
+            >
+              <span class="font-semibold">{{ room }}</span>
+              <span class="rounded-full bg-brand-100 dark:bg-brand-950 text-brand-800 dark:text-brand-300 font-bold px-2 py-0.5 text-[10px]">
+                {{ admin.teachers.filter(t => t.room === room || t.room === 'All Rooms').length }} staff
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================================================================== -->
+    <!-- ADD / EDIT TEACHER MODAL -->
+    <!-- ===================================================================== -->
+    <div
+      v-if="showTeacherModal"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm"
+      @click.self="showTeacherModal = false"
+    >
+      <div class="card max-w-lg w-full p-6 space-y-5 bg-white dark:bg-slate-900 shadow-lift">
+        <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+          <div class="flex items-center gap-2">
+            <span class="text-xl">{{ editingTeacherId ? '✏️' : '➕' }}</span>
+            <h3 class="font-display font-black text-lg">
+              {{ editingTeacherId ? 'Edit Educator Access' : 'Grant New Teacher Access' }}
+            </h3>
+          </div>
+          <button
+            type="button"
+            class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+            @click="showTeacherModal = false"
+          >
+            ✕
+          </button>
+        </div>
+
+        <form class="space-y-4" @submit.prevent="handleSaveTeacher">
+          <!-- Email -->
+          <div class="space-y-1">
+            <label class="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
+              Teacher Email Address *
+            </label>
+            <input
+              v-model="teacherForm.email"
+              type="email"
+              required
+              placeholder="e.g. lakshmi@hadfield.edu.au"
+              class="input w-full"
+            />
+            <p class="text-[11px] text-slate-500">
+              The teacher will use this email address to log in to Hadfield Inquiry Planner.
+            </p>
+          </div>
+
+          <!-- Name -->
+          <div class="space-y-1">
+            <label class="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
+              Educator Full Name
+            </label>
+            <input
+              v-model="teacherForm.name"
+              type="text"
+              placeholder="e.g. Lakshmi"
+              class="input w-full"
+            />
+          </div>
+
+          <!-- Role & Room Grid -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div class="space-y-1">
+              <label class="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
+                Staff Role
+              </label>
+              <select v-model="teacherForm.role" class="select w-full">
+                <option v-for="r in ROLES" :key="r" :value="r">{{ r }}</option>
+              </select>
+            </div>
+
+            <div class="space-y-1">
+              <label class="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
+                Assigned Room
+              </label>
+              <select v-model="teacherForm.room" class="select w-full">
+                <option v-for="rm in roomOptions" :key="rm" :value="rm">{{ rm }}</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Initial Status -->
+          <div class="space-y-1">
+            <label class="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
+              Access Status
+            </label>
+            <select v-model="teacherForm.status" class="select w-full">
+              <option value="active">Active (Immediate platform access)</option>
+              <option value="invited">Invited (Send invitation email)</option>
+              <option value="suspended">Suspended (Access blocked)</option>
+            </select>
+          </div>
+
+          <!-- Notes -->
+          <div class="space-y-1">
+            <label class="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
+              Leadership Notes / Certifications (Optional)
+            </label>
+            <textarea
+              v-model="teacherForm.notes"
+              rows="2"
+              placeholder="e.g. Master of Teaching (Early Childhood), WWCC verified, First Aid current."
+              class="textarea text-xs w-full"
+            />
+          </div>
+
+          <!-- Modal Actions -->
+          <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-200 dark:border-slate-800">
+            <button
+              type="button"
+              class="btn-ghost"
+              @click="showTeacherModal = false"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              class="btn-primary flex items-center gap-2"
+              :disabled="teacherFormSubmitting"
+            >
+              <span>{{ editingTeacherId ? 'Save Changes' : 'Grant Access' }}</span>
+              <span v-if="teacherFormSubmitting">⏳</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</template>

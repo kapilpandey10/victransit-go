@@ -128,6 +128,8 @@ export const useProjectStore = defineStore('project', () => {
       analysis: '',
       educator_reflection: '',
       next_steps: '',
+      family_link: '',
+      educator_name: '',
       eylf_outcome_ids: [],
       theory_ids: [],
       photo_urls: [],
@@ -149,7 +151,7 @@ export const useProjectStore = defineStore('project', () => {
     stories.value = stories.value.filter(s => s.id !== id)
   }
 
-  // ---- Activities --------------------------------------------------------
+  // ---- Activities (Programming Book experiences) --------------------------
   async function loadActivities(projectId?: string) {
     activities.value = await activitiesRepo.list(
       scope(),
@@ -167,6 +169,11 @@ export const useProjectStore = defineStore('project', () => {
       eylf_outcome_ids: [],
       theory_ids: [],
       resources: '',
+      room: '',
+      experience_type: 'group',
+      date: new Date().toISOString().slice(0, 10),
+      photo_urls: [],
+      educator_name: '',
       ...payload,
     })
     activities.value = [created, ...activities.value]

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import UnderDevelopmentBanner from '@/components/UnderDevelopmentBanner.vue'
 import { EYLF_OUTCOMES } from '@/data/eylf'
 import { REGGIO_PRINCIPLES, REGGIO_QUOTE, REGGIO_ROOM_AUDIT } from '@/data/reggio'
 import { THEORIES, theoriesForOutcome } from '@/data/theories'
@@ -56,6 +57,8 @@ function askAiAboutTheory() {
 
 <template>
   <div class="space-y-5">
+    <UnderDevelopmentBanner topic-key="theories" />
+
     <nav class="flex gap-1 rounded-xl bg-slate-100 p-1 dark:bg-slate-800">
       <button
         v-for="band in [

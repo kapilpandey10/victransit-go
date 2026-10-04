@@ -2,10 +2,11 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { createRepo, TABLES } from '@/services/repo'
 import { useAuthStore } from './auth'
-import type { Newsletter, ProgramBookAnalysis } from '@/types'
+import type { Newsletter, ProgramBookAnalysis, WeeklyWrapUp } from '@/types'
 
 const newslettersRepo = createRepo<Newsletter>(TABLES.newsletters)
 const analysesRepo = createRepo<ProgramBookAnalysis>(TABLES.programAnalyses)
+const wrapUpsRepo = createRepo<WeeklyWrapUp>(TABLES.weeklyWrapUps)
 
 /**
  * Persisted content that is not tied to a single project: newsletters and
@@ -91,9 +92,57 @@ export const useContentStore = defineStore('content', () => {
     analyses.value = analyses.value.filter(a => a.id !== id)
   }
 
+  // -------------------------------------------------------------------------
+  // Weekly Wrap-Up — one draft per room + week (Mon–Fri notes + compiled text).
+  // -------------------------------------------------------------------------
+  const wrapUps = ref<WeeklyWrapUp[]>([])
+
+  async function loadWrapUps() {
+    loading.value = true
+    try {
+      wrapUps.value = await wrapUpsRepo.list(scope(), { orderBy: 'week_start' })
+    } finally {
+      loading.value = false
+    }
+  }
+
+  function findWrapUp(room: string, weekKey: string): WeeklyWrapUp | null {
+    return (
+      wrapUps.value.find(w => w.room === room && w.week_start === weekKey) ?? null
+    )
+  }
+
+  async function saveWrapUp(
+    payload: Partial<WeeklyWrapUp> & { room: string; week_start: string },
+    id?: string,
+  ) {
+    if (id) {
+      const updated = await wrapUpsRepo.update(scope(), id, payload)
+      wrapUps.value = wrapUps.value.map(w => (w.id === id ? updated : w))
+      return updated
+    }
+    const created = await wrapUpsRepo.create(scope(), {
+      days: {},
+      reminders: '',
+      lost_found: '',
+      extra_message: '',
+      result: '',
+      status: 'draft',
+      ...payload,
+    })
+    wrapUps.value = [created, ...wrapUps.value]
+    return created
+  }
+
+  async function deleteWrapUp(id: string) {
+    await wrapUpsRepo.remove(scope(), id)
+    wrapUps.value = wrapUps.value.filter(w => w.id !== id)
+  }
+
   return {
     newsletters,
     analyses,
+    wrapUps,
     loading,
     loadNewsletters,
     saveNewsletter,
@@ -101,5 +150,9 @@ export const useContentStore = defineStore('content', () => {
     loadAnalyses,
     saveAnalysis,
     deleteAnalysis,
+    loadWrapUps,
+    findWrapUp,
+    saveWrapUp,
+    deleteWrapUp,
   }
 })

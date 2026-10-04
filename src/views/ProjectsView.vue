@@ -2,6 +2,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import EylfOutcomePicker from '@/components/EylfOutcomePicker.vue'
+import UnderDevelopmentBanner from '@/components/UnderDevelopmentBanner.vue'
 import { useProjectStore } from '@/stores/project'
 import { useUiStore } from '@/stores/ui'
 import type { EylfOutcomeId } from '@/types'
@@ -54,6 +55,8 @@ onMounted(() => projects.loadProjects())
 
 <template>
   <div class="space-y-5">
+    <UnderDevelopmentBanner topic-key="projects" />
+
     <div class="flex items-center justify-between gap-3">
       <p class="text-sm text-slate-500 dark:text-slate-400">
         Each project holds a mind map, experiences and EYLF links.

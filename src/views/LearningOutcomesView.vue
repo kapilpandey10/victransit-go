@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import EylfOutcomePicker from '@/components/EylfOutcomePicker.vue'
 import TheoryPicker from '@/components/TheoryPicker.vue'
+import UnderDevelopmentBanner from '@/components/UnderDevelopmentBanner.vue'
 import { PROMPTS } from '@/data/prompts'
 import { useAiTask } from '@/composables/useAiTask'
 import { useChatStore } from '@/stores/chat'
@@ -90,7 +91,10 @@ onMounted(() => projects.loadProjects())
 </script>
 
 <template>
-  <div class="grid gap-5 lg:grid-cols-5">
+  <div class="space-y-5">
+    <UnderDevelopmentBanner topic-key="learning-outcomes" />
+
+    <div class="grid gap-5 lg:grid-cols-5">
     <section class="space-y-4 lg:col-span-3">
       <div class="card space-y-4">
         <div>
@@ -188,5 +192,6 @@ onMounted(() => projects.loadProjects())
         <TheoryPicker v-model="manualTheories" :outcome-ids="manualOutcomes" />
       </div>
     </aside>
+  </div>
   </div>
 </template>

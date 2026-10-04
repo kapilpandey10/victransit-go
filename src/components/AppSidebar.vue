@@ -1,15 +1,28 @@
 <script setup lang="ts">
+import { onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { NAV_ITEMS } from '@/router'
+import { useAdminStore } from '@/stores/admin'
 import { useAuthStore } from '@/stores/auth'
 import { useUiStore } from '@/stores/ui'
 
 const ui = useUiStore()
 const auth = useAuthStore()
+const admin = useAdminStore()
 const route = useRoute()
+
+onMounted(() => {
+  if (!admin.initialised) {
+    void admin.init()
+  }
+})
 
 const isActive = (path: string) =>
   path === '/' ? route.path === '/' : route.path.startsWith(path)
+
+function isUnderDev(path: string, name: string): boolean {
+  return admin.isTopicUnderDevelopment(name) || admin.isTopicUnderDevelopment(path)
+}
 </script>
 
 <template>
@@ -33,7 +46,7 @@ const isActive = (path: string) =>
         v-for="item in NAV_ITEMS"
         :key="item.path"
         :to="item.path"
-        class="flex min-h-touch items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-bold transition"
+        class="flex min-h-touch items-center justify-between gap-2 rounded-xl px-3 py-2.5 text-sm font-bold transition"
         :class="
           isActive(item.path)
             ? 'bg-brand-50 text-brand-800 dark:bg-brand-950/60 dark:text-brand-200'
@@ -41,8 +54,19 @@ const isActive = (path: string) =>
         "
         @click="ui.toggleSidebar(false)"
       >
-        <span class="text-lg">{{ item.icon }}</span>
-        <span class="truncate">{{ item.title }}</span>
+        <div class="flex items-center gap-3 min-w-0">
+          <span class="text-lg shrink-0">{{ item.icon }}</span>
+          <span class="truncate">{{ item.title }}</span>
+        </div>
+
+        <!-- Under Development Badge -->
+        <span
+          v-if="isUnderDev(item.path, item.name)"
+          class="shrink-0 rounded-full bg-amber-100 dark:bg-amber-950/70 border border-amber-300/80 dark:border-amber-700/80 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-amber-800 dark:text-amber-200"
+          title="Under Active Development"
+        >
+          🚧 WIP
+        </span>
       </RouterLink>
     </nav>
 
@@ -50,13 +74,27 @@ const isActive = (path: string) =>
       <button class="btn-secondary w-full" @click="ui.toggleChat(true)">
         ✨ Ask the AI assistant
       </button>
-      <RouterLink
-        to="/settings"
-        class="btn-ghost w-full"
-        @click="ui.toggleSidebar(false)"
-      >
-        ⚙️ Settings
-      </RouterLink>
+      <div class="grid grid-cols-2 gap-1.5">
+        <RouterLink
+          to="/admin"
+          class="btn-ghost flex items-center justify-center gap-1.5 text-xs font-bold"
+          :class="{ 'bg-slate-100 dark:bg-slate-800': route.path === '/admin' }"
+          @click="ui.toggleSidebar(false)"
+        >
+          <span>🛡️</span>
+          <span>Admin</span>
+        </RouterLink>
+
+        <RouterLink
+          to="/settings"
+          class="btn-ghost flex items-center justify-center gap-1.5 text-xs font-bold"
+          :class="{ 'bg-slate-100 dark:bg-slate-800': route.path === '/settings' }"
+          @click="ui.toggleSidebar(false)"
+        >
+          <span>⚙️</span>
+          <span>Settings</span>
+        </RouterLink>
+      </div>
     </div>
   </div>
 </template>
