@@ -411,6 +411,109 @@ Return ONLY valid JSON in this exact shape:
     { "title": "Simple & Concise", "text": "…" }
   ]
 }`,
+
+  eylfProvocation: (input: {
+    outcomeId: number
+    subOutcomeId: string
+    subOutcomeText: string
+    room?: string
+    ageGroup?: string
+    interest?: string
+  }) => `You are an expert Australian Early Childhood Educational Leader and Reggio Emilia mentor.
+An educator at Hadfield Early Learning Centre wants an inquiry provocation and learning experience aligned to:
+EYLF V2.0 Outcome ${input.outcomeId}: Sub-Outcome ${input.subOutcomeId} — "${input.subOutcomeText}".
+Room: ${input.room || 'General Early Learning Room'}
+Age Group: ${input.ageGroup || 'Toddler / Kindergarten (2-5 years)'}
+Current Children's Interest / Provocation Context: ${input.interest || 'Emergent child-led exploration'}
+
+${EYLF_REFERENCE}
+
+Return ONLY valid JSON in this exact shape:
+{
+  "provocationTitle": "Engaging, poetic provocation title",
+  "ageFocus": "${input.ageGroup || '2-5 years'}",
+  "reggioEnvironmentSetup": "Describe physical environment as 3rd teacher, loose parts, lighting, natural textures, and open-ended presentation",
+  "openEndedQuestions": [
+    "Provocative question 1 that prompts wonder without simple yes/no",
+    "Provocative question 2 inviting hypotheses",
+    "Provocative question 3 encouraging peer sharing"
+  ],
+  "intentionalTeachingRole": "Specific scaffolding techniques, modeling, and shared sustained thinking for educators",
+  "theoristLink": {
+    "name": "e.g. Lev Vygotsky / Loris Malaguzzi / Jean Piaget",
+    "concept": "e.g. Zone of Proximal Development / Hundred Languages of Children / Schemas",
+    "explanation": "Why this experience exemplifies this theoretical perspective"
+  },
+  "learningStorySnippet": "1-2 sentences of high quality strengths-based pedagogical analysis ready to include in a Learning Story observation"
+}`,
+
+  eylfAnalyseObservation: (input: {
+    observation: string
+    room?: string
+    ageGroup?: string
+  }) => `You are an expert Early Childhood Pedagogical Leader evaluating an observation from an Australian early learning centre against the Early Years Learning Framework V2.0 (EYLF V2.0).
+
+${EYLF_REFERENCE}
+
+Room: ${input.room || 'Hadfield Early Learning Centre'}
+Age Group: ${input.ageGroup || '0-5 years'}
+Observation:
+"""
+${input.observation}
+"""
+
+Return ONLY valid JSON in this exact shape:
+{
+  "primaryOutcome": {
+    "outcomeId": 4,
+    "outcomeTitle": "Children are confident and involved learners",
+    "subOutcomeId": "4.2",
+    "subOutcomeText": "Children develop a range of learning and thinking skills and processes such as problem-solving, inquiry, experimentation, hypothesising, researching and investigating",
+    "confidenceScore": 95,
+    "pedagogicalReasoning": "Concise explanation of how the child's actions demonstrate this sub-outcome"
+  },
+  "secondaryOutcomes": [
+    {
+      "outcomeId": 1,
+      "subOutcomeId": "1.2",
+      "subOutcomeText": "Children develop their emerging autonomy, inter-dependence, resilience and agency",
+      "pedagogicalReasoning": "Why this secondary outcome is also evident"
+    }
+  ],
+  "learningDispositions": ["Curiosity", "Persistence", "Spatial Reasoning"],
+  "theoristPerspective": {
+    "theorist": "Jean Piaget & Lev Vygotsky",
+    "concept": "Enclosure / Connection Schemas & Social Scaffolding",
+    "note": "How this theorist lens illuminates the child's thinking"
+  },
+  "intentionalTeachingExtension": "A practical, high-value invitation or provocation to extend this child's inquiry tomorrow",
+  "learningStoryAnalysisExcerpt": "A beautiful 2-3 sentence analysis paragraph written in strengths-based, NQF-compliant prose suitable for sharing with families"
+}`,
+
+  eylfReflectivePracticePrompt: (input: {
+    type: 'principle' | 'practice'
+    title: string
+    description: string
+  }) => `You are an Australian Early Childhood Educational Leader preparing a critical reflection provocation for a team room meeting at Hadfield Early Learning Centre.
+
+Topic: EYLF V2.0 ${input.type === 'principle' ? 'Principle' : 'Practice'}: "${input.title}"
+Framework Summary: "${input.description}"
+
+Return ONLY valid JSON in this exact shape:
+{
+  "title": "${input.title}",
+  "nqsLink": "Quality Area 1 (Educational Program and Practice) & Quality Area 7 (Governance and Leadership)",
+  "criticalReflectionQuestions": [
+    "Deep reflective question 1 challenging assumptions about our everyday routines",
+    "Deep reflective question 2 regarding children's agency, cultural safety, or family voice",
+    "Deep reflective question 3 examining our indoor/outdoor environment as third teacher"
+  ],
+  "roomActionIdeas": [
+    "Practical change 1 the room team can implement this week",
+    "Practical change 2 to visibly evidence this in our curriculum"
+  ],
+  "leadershipTip": "A concise leadership gem for mentoring educators and pedagogical documentation"
+}`,
 } as const
 
 /** Seed prompts used by the chat quick-start buttons. */

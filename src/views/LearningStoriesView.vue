@@ -481,9 +481,25 @@ function theoryLabel(id: string) {
   return found?.name ? found.name.split('—')[0].trim() : id
 }
 
+import { useRoute } from 'vue-router'
+
+const route = useRoute()
+
 onMounted(() => {
   void projects.loadProjects()
   void projects.loadStories()
+
+  if (route.query.title || route.query.observation || route.query.outcome || route.query.analysis) {
+    mode.value = 'write'
+    if (route.query.title) draft.title = String(route.query.title)
+    if (route.query.observation) draft.observation = String(route.query.observation)
+    if (route.query.analysis) draft.analysis = String(route.query.analysis)
+    if (route.query.next_steps) draft.next_steps = String(route.query.next_steps)
+    if (route.query.outcome) {
+      const oc = Number(route.query.outcome) as EylfOutcomeId
+      if ([1, 2, 3, 4, 5].includes(oc)) draft.eylf_outcome_ids = [oc]
+    }
+  }
 })
 </script>
 
