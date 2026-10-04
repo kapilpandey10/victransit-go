@@ -97,7 +97,12 @@ function edit(item: (typeof newsletters.value)[number]) {
 
 async function remove(id: string) {
   if (!window.confirm('Delete this newsletter?')) return
-  await content.deleteNewsletter(id)
+  try {
+    await content.deleteNewsletter(id)
+    ui.showToast('Newsletter deleted', 'info')
+  } catch (err: unknown) {
+    ui.showToast((err as Error)?.message || 'Failed to delete newsletter', 'error')
+  }
 }
 
 onMounted(() => content.loadNewsletters())
@@ -127,7 +132,21 @@ onMounted(() => content.loadNewsletters())
             <button class="btn-secondary flex-1 !py-2 text-xs" @click="edit(item)">
               ✏️ Edit
             </button>
-            <button class="btn-ghost !px-3 !py-2 text-xs" @click="remove(item.id)">🗑</button>
+            <button
+              v-if="content.canDeleteNewsletter(item)"
+              class="btn-ghost !px-3 !py-2 text-xs text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30"
+              title="Delete newsletter"
+              @click="remove(item.id)"
+            >
+              🗑
+            </button>
+            <span
+              v-else
+              class="inline-flex items-center text-[10px] text-slate-400 px-2 py-1 select-none"
+              title="Shared with centre: You can edit and compile with AI, but only the author or Director can delete"
+            >
+              🔒 Shared
+            </span>
           </div>
         </article>
       </div>

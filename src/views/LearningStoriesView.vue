@@ -298,8 +298,12 @@ function edit(story: LearningStory) {
 
 async function remove(id: string) {
   if (!window.confirm('Delete this learning story?')) return
-  await projects.deleteStory(id)
-  ui.showToast('Story deleted', 'info')
+  try {
+    await projects.deleteStory(id)
+    ui.showToast('Story deleted', 'info')
+  } catch (err: unknown) {
+    ui.showToast((err as Error)?.message || 'Failed to delete story', 'error')
+  }
 }
 
 function askAi() {
@@ -451,9 +455,21 @@ onMounted(() => {
             >
               🖨️ Print / PDF
             </button>
-            <button class="btn-ghost !px-2.5 !py-1.5 text-xs text-rose-500" @click="remove(story.id)">
+            <button
+              v-if="projects.canDeleteStory(story)"
+              class="btn-ghost !px-2.5 !py-1.5 text-xs text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30"
+              title="Delete learning story"
+              @click="remove(story.id)"
+            >
               🗑
             </button>
+            <span
+              v-else
+              class="inline-flex items-center text-[10px] text-slate-400 px-2 py-1 select-none"
+              title="Shared with centre: You can edit and compile with AI, but only the author or Director can delete"
+            >
+              🔒 Shared
+            </span>
           </div>
         </article>
       </div>

@@ -14,5 +14,8 @@ export default defineConfig({
     globals: true,
     include: ['src/**/*.spec.ts'],
     setupFiles: ['./vitest.setup.ts'],
+    env: {
+      VITE_SUPABASE_ANON_KEY: '',
+    },
   },
 })

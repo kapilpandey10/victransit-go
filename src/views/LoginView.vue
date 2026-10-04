@@ -14,7 +14,8 @@ const route = useRoute()
 const email = ref('')
 const password = ref('')
 const loading = ref(false)
-const mode = ref<'password' | 'otp'>('password')
+const fullName = ref('')
+const mode = ref<'password' | 'signup' | 'otp'>('password')
 const errorMessage = ref<string | null>(null)
 
 onMounted(async () => {
@@ -28,7 +29,8 @@ const redirectTarget = computed(() => (route.query.redirect as string) || '/dash
 
 async function handleLogin() {
   errorMessage.value = null
-  if (!email.value.trim()) {
+  const normEmail = email.value.trim().toLowerCase()
+  if (!normEmail) {
     errorMessage.value = 'Please enter your email address.'
     return
   }
@@ -36,27 +38,20 @@ async function handleLogin() {
   loading.value = true
   try {
     if (mode.value === 'password') {
-      await auth.signIn(email.value.trim(), password.value)
+      await auth.signIn(normEmail, password.value)
       ui.showToast(`Welcome back, ${auth.displayName}!`, 'success')
       await router.push(redirectTarget.value)
+    } else if (mode.value === 'signup') {
+      if (!password.value || password.value.length < 6) {
+        throw new Error('Password must be at least 6 characters long.')
+      }
+      await auth.signUp(normEmail, password.value, fullName.value.trim())
+      ui.showToast('Account created and verified! Welcome to Hadfield ELC.', 'success')
+      await router.push(redirectTarget.value)
     } else {
-      await auth.signInWithOtp(email.value.trim())
+      await auth.signInWithOtp(normEmail)
       ui.showToast('Magic login link sent to your email!', 'success')
     }
-  } catch (err) {
-    errorMessage.value = (err as Error).message
-  } finally {
-    loading.value = false
-  }
-}
-
-async function quickLoginAs(userEmail: string) {
-  loading.value = true
-  errorMessage.value = null
-  try {
-    await auth.signIn(userEmail)
-    ui.showToast(`Logged in as ${auth.displayName} (${auth.userRole})`, 'success')
-    await router.push(redirectTarget.value)
   } catch (err) {
     errorMessage.value = (err as Error).message
   } finally {
@@ -81,31 +76,70 @@ async function quickLoginAs(userEmail: string) {
         </p>
       </div>
 
-      <!-- Whitelist Notice -->
-      <div class="rounded-xl border border-brand-500/30 bg-brand-500/10 p-3 text-xs text-brand-200 flex items-start gap-2">
-        <span class="text-base">🔐</span>
-        <p class="leading-relaxed">
-          Access is strictly authorized for Hadfield ELC educators. Log in using the email provided by your Centre Director.
+      <!-- Cloud Auth Notice -->
+      <div class="rounded-xl border border-brand-500/30 bg-brand-500/10 p-3.5 text-xs text-brand-200 space-y-1.5">
+        <div class="flex items-center gap-2 font-bold text-white">
+          <span>🔐</span>
+          <span>Supabase Cloud Authentication Active</span>
+        </div>
+        <p class="leading-relaxed text-slate-300">
+          Authorized logins only.
+          <span class="text-amber-300 font-semibold">kapilpandey@hadfield.edu.au</span> logs in as Centre Director (Admin).
+          All other staff log in as Educators.
         </p>
       </div>
 
       <!-- Error Alert -->
       <div
         v-if="errorMessage"
-        class="rounded-xl border border-rose-500/40 bg-rose-500/10 p-3 text-xs text-rose-200 flex items-start gap-2"
+        class="rounded-xl border border-rose-500/40 bg-rose-500/10 p-3.5 text-xs text-rose-200 flex items-start gap-2.5"
       >
-        <span class="text-base">⚠️</span>
+        <span class="text-base shrink-0">⚠️</span>
         <div class="space-y-1">
           <p class="font-bold">Authentication Notice</p>
           <p class="leading-relaxed">{{ errorMessage }}</p>
         </div>
       </div>
 
+      <!-- Auth Mode Selector (Sign In vs First Time Sign Up) -->
+      <div class="grid grid-cols-2 p-1 rounded-xl bg-slate-800 border border-slate-700 text-xs font-bold">
+        <button
+          type="button"
+          class="py-2 rounded-lg transition"
+          :class="mode === 'password' || mode === 'otp' ? 'bg-brand-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'"
+          @click="mode = 'password'"
+        >
+          Sign In
+        </button>
+        <button
+          type="button"
+          class="py-2 rounded-lg transition"
+          :class="mode === 'signup' ? 'bg-brand-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'"
+          @click="mode = 'signup'"
+        >
+          First Time? Sign Up
+        </button>
+      </div>
+
       <!-- Login Form -->
       <form class="space-y-4" @submit.prevent="handleLogin">
+        <!-- Full Name (for Sign Up only) -->
+        <div v-if="mode === 'signup'" class="space-y-1">
+          <label class="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+            Educator Full Name
+          </label>
+          <input
+            v-model="fullName"
+            type="text"
+            required
+            placeholder="e.g. Lakshmi"
+            class="input w-full bg-slate-800/80 border-slate-700 text-white placeholder-slate-500"
+          />
+        </div>
+
         <div class="space-y-1">
           <label class="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-            Educator Email
+            Authorized Email Address
           </label>
           <input
             v-model="email"
@@ -117,23 +151,24 @@ async function quickLoginAs(userEmail: string) {
           />
         </div>
 
-        <div v-if="mode === 'password'" class="space-y-1">
+        <div v-if="mode !== 'otp'" class="space-y-1">
           <div class="flex items-center justify-between">
             <label class="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-              Password
+              {{ mode === 'signup' ? 'Choose Password (min 6 chars)' : 'Password' }}
             </label>
             <button
+              v-if="mode === 'password'"
               type="button"
               class="text-xs text-brand-400 hover:underline"
               @click="mode = 'otp'"
             >
-              Use magic link instead
+              Use magic link
             </button>
           </div>
           <input
             v-model="password"
             type="password"
-            :required="!auth.demoMode"
+            required
             autocomplete="current-password"
             placeholder="••••••••"
             class="input w-full bg-slate-800/80 border-slate-700 text-white placeholder-slate-500"
@@ -155,72 +190,25 @@ async function quickLoginAs(userEmail: string) {
           class="btn-primary w-full py-3 font-bold text-sm shadow-soft flex items-center justify-center gap-2"
           :disabled="loading"
         >
-          <span>{{ mode === 'password' ? 'Sign In to Inquiry Planner' : 'Send Magic Link' }}</span>
+          <span>
+            {{
+              mode === 'password'
+                ? 'Sign In to Portal'
+                : mode === 'signup'
+                  ? 'Create Educator Account'
+                  : 'Send Magic Link'
+            }}
+          </span>
           <span v-if="loading">⏳</span>
           <span v-else>&rarr;</span>
         </button>
       </form>
 
-      <!-- Quick Switcher for Demo / Local Mode -->
-      <div class="border-t border-slate-800 pt-4 space-y-3">
-        <div class="flex items-center justify-between">
-          <p class="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-            Quick Login Demo Accounts:
-          </p>
-          <span class="rounded bg-brand-900/60 text-brand-300 text-[10px] font-mono px-1.5 py-0.5">
-            1-Click Switch
-          </span>
-        </div>
-
-        <div class="grid grid-cols-2 gap-2 text-xs">
-          <button
-            type="button"
-            class="p-2.5 rounded-xl border border-brand-500/40 bg-brand-500/10 hover:bg-brand-500/20 text-left transition"
-            @click="quickLoginAs('kapilpandey@hadfield.edu.au')"
-          >
-            <div class="flex items-center gap-1.5 font-bold text-brand-300">
-              <span>🛡️</span>
-              <span>Kapil Pandey</span>
-            </div>
-            <p class="text-[10px] text-slate-400">Centre Director (Admin)</p>
-          </button>
-
-          <button
-            type="button"
-            class="p-2.5 rounded-xl border border-slate-800 bg-slate-800/60 hover:bg-slate-800 text-left transition"
-            @click="quickLoginAs('jean@hadfield.edu.au')"
-          >
-            <div class="flex items-center gap-1.5 font-bold text-slate-200">
-              <span>👩‍🏫</span>
-              <span>Jean</span>
-            </div>
-            <p class="text-[10px] text-slate-400">Educational Leader</p>
-          </button>
-
-          <button
-            type="button"
-            class="p-2.5 rounded-xl border border-slate-800 bg-slate-800/60 hover:bg-slate-800 text-left transition"
-            @click="quickLoginAs('lakshmi@hadfield.edu.au')"
-          >
-            <div class="flex items-center gap-1.5 font-bold text-slate-200">
-              <span>👩‍🏫</span>
-              <span>Lakshmi</span>
-            </div>
-            <p class="text-[10px] text-slate-400">ECT (Dandelions Room)</p>
-          </button>
-
-          <button
-            type="button"
-            class="p-2.5 rounded-xl border border-slate-800 bg-slate-800/60 hover:bg-slate-800 text-left transition"
-            @click="quickLoginAs('kelly.goodsir@hadfield.edu.au')"
-          >
-            <div class="flex items-center gap-1.5 font-bold text-slate-200">
-              <span>👩‍🏫</span>
-              <span>Kelly Goodsir</span>
-            </div>
-            <p class="text-[10px] text-slate-400">Room Leader (Butter Beans)</p>
-          </button>
-        </div>
+      <!-- Security Guidance Footer -->
+      <div class="border-t border-slate-800 pt-4 text-center">
+        <p class="text-[11px] text-slate-400">
+          Need access? Contact Centre Director Kapil Pandey to add your email to the educator roster.
+        </p>
       </div>
     </div>
   </div>

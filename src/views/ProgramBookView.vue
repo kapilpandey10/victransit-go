@@ -309,8 +309,12 @@ function editExp(act: Activity) {
 
 async function removeExp(id: string) {
   if (!window.confirm('Delete this Programming Book entry?')) return
-  await projects.deleteActivity(id)
-  ui.showToast('Entry deleted', 'info')
+  try {
+    await projects.deleteActivity(id)
+    ui.showToast('Entry deleted', 'info')
+  } catch (err: unknown) {
+    ui.showToast((err as Error)?.message || 'Failed to delete entry', 'error')
+  }
 }
 
 function openPrintModal(act?: Activity) {
@@ -461,8 +465,13 @@ function startNewAnalysis() {
 
 async function removeAnalysis(id: string) {
   if (!window.confirm('Delete this analysis?')) return
-  await content.deleteAnalysis(id)
-  if (analysisSavedId.value === id) startNewAnalysis()
+  try {
+    await content.deleteAnalysis(id)
+    if (analysisSavedId.value === id) startNewAnalysis()
+    ui.showToast('Analysis deleted', 'info')
+  } catch (err: unknown) {
+    ui.showToast((err as Error)?.message || 'Failed to delete analysis', 'error')
+  }
 }
 
 onMounted(() => {
@@ -570,9 +579,21 @@ onMounted(() => {
               >
                 🖨️ Print / PDF
               </button>
-              <button class="btn-ghost !px-2.5 !py-1.5 text-xs text-rose-500" @click="removeExp(act.id)">
+              <button
+                v-if="projects.canDeleteActivity(act)"
+                class="btn-ghost !px-2.5 !py-1.5 text-xs text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30"
+                title="Delete entry"
+                @click="removeExp(act.id)"
+              >
                 🗑
               </button>
+              <span
+                v-else
+                class="inline-flex items-center text-[10px] text-slate-400 px-2 py-1 select-none"
+                title="Shared with centre: You can edit and compile with AI, but only the author or Director can delete"
+              >
+                🔒 Shared
+              </span>
             </div>
           </article>
         </div>
@@ -955,9 +976,21 @@ onMounted(() => {
               <button class="btn-secondary flex-1 !py-1 text-xs" @click="loadSavedAnalysis(a.id)">
                 View
               </button>
-              <button class="btn-ghost !px-2.5 !py-1 text-xs text-rose-500" @click="removeAnalysis(a.id)">
+              <button
+                v-if="content.canDeleteAnalysis(a)"
+                class="btn-ghost !px-2.5 !py-1 text-xs text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30"
+                title="Delete analysis"
+                @click="removeAnalysis(a.id)"
+              >
                 🗑
               </button>
+              <span
+                v-else
+                class="inline-flex items-center text-[10px] text-slate-400 px-2 py-1 select-none"
+                title="Shared with centre: You can edit and compile with AI, but only the author or Director can delete"
+              >
+                🔒 Shared
+              </span>
             </div>
           </article>
         </div>

@@ -4,10 +4,10 @@ import { createRepo, TABLES } from '@/services/repo'
 import { useAuthStore } from './auth'
 import type { Activity, EylfOutcomeId, LearningStory, MindMapNode, Project } from '@/types'
 
-const projectsRepo = createRepo<Project>(TABLES.projects)
-const nodesRepo = createRepo<MindMapNode>(TABLES.mindmapNodes)
-const storiesRepo = createRepo<LearningStory>(TABLES.learningStories)
-const activitiesRepo = createRepo<Activity>(TABLES.activities)
+const projectsRepo = createRepo<Project>(TABLES.projects, { centreShared: true })
+const nodesRepo = createRepo<MindMapNode>(TABLES.mindmapNodes, { centreShared: true })
+const storiesRepo = createRepo<LearningStory>(TABLES.learningStories, { centreShared: true })
+const activitiesRepo = createRepo<Activity>(TABLES.activities, { centreShared: true })
 
 export const useProjectStore = defineStore('project', () => {
   const auth = useAuthStore()
@@ -86,8 +86,19 @@ export const useProjectStore = defineStore('project', () => {
     return updated
   }
 
+  function canDeleteProject(project: Project): boolean {
+    if (auth.isAdmin) return true
+    return project.user_id === auth.userId
+  }
+
   async function deleteProject(id: string) {
-    await projectsRepo.remove(scope(), id)
+    const existing = projects.value.find(p => p.id === id)
+    if (existing && !canDeleteProject(existing)) {
+      throw new Error(
+        "Cannot delete: Educators in the same centre can view and update each other's projects, but only the original author or Centre Director can delete it.",
+      )
+    }
+    await projectsRepo.remove(scope(), id, auth.isAdmin)
     projects.value = projects.value.filter(p => p.id !== id)
     if (activeProject.value?.id === id) activeProject.value = null
   }
@@ -129,7 +140,7 @@ export const useProjectStore = defineStore('project', () => {
       educator_reflection: '',
       next_steps: '',
       family_link: '',
-      educator_name: '',
+      educator_name: auth.displayName || '',
       eylf_outcome_ids: [],
       theory_ids: [],
       photo_urls: [],
@@ -146,8 +157,19 @@ export const useProjectStore = defineStore('project', () => {
     return updated
   }
 
+  function canDeleteStory(story: LearningStory): boolean {
+    if (auth.isAdmin) return true
+    return story.user_id === auth.userId
+  }
+
   async function deleteStory(id: string) {
-    await storiesRepo.remove(scope(), id)
+    const existing = stories.value.find(s => s.id === id)
+    if (existing && !canDeleteStory(existing)) {
+      throw new Error(
+        "Cannot delete: Educators in the same centre can view and update each other's learning stories, but only the original author or Centre Director can delete it.",
+      )
+    }
+    await storiesRepo.remove(scope(), id, auth.isAdmin)
     stories.value = stories.value.filter(s => s.id !== id)
   }
 
@@ -186,8 +208,19 @@ export const useProjectStore = defineStore('project', () => {
     return updated
   }
 
+  function canDeleteActivity(activity: Activity): boolean {
+    if (auth.isAdmin) return true
+    return activity.user_id === auth.userId
+  }
+
   async function deleteActivity(id: string) {
-    await activitiesRepo.remove(scope(), id)
+    const existing = activities.value.find(a => a.id === id)
+    if (existing && !canDeleteActivity(existing)) {
+      throw new Error(
+        "Cannot delete: Educators in the same centre can view and update each other's experiences, but only the original author or Centre Director can delete them.",
+      )
+    }
+    await activitiesRepo.remove(scope(), id, auth.isAdmin)
     activities.value = activities.value.filter(a => a.id !== id)
   }
 
@@ -218,10 +251,13 @@ export const useProjectStore = defineStore('project', () => {
     createStory,
     updateStory,
     deleteStory,
+    canDeleteStory,
+    canDeleteProject,
     loadActivities,
     createActivity,
     updateActivity,
     deleteActivity,
+    canDeleteActivity,
     clear,
     scope,
   }

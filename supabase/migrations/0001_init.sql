@@ -217,18 +217,65 @@ drop policy if exists "own rows" on public.activities;
 drop policy if exists "own rows" on public.newsletters;
 drop policy if exists "own rows" on public.program_book_analyses;
 
-create policy "own rows" on public.projects
-  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
-create policy "own rows" on public.mindmap_nodes
-  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
-create policy "own rows" on public.learning_stories
-  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
-create policy "own rows" on public.activities
-  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
-create policy "own rows" on public.newsletters
-  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
-create policy "own rows" on public.program_book_analyses
-  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+drop policy if exists "centre_select_projects" on public.projects;
+drop policy if exists "centre_select_mindmap" on public.mindmap_nodes;
+drop policy if exists "centre_select_stories" on public.learning_stories;
+drop policy if exists "centre_select_activities" on public.activities;
+drop policy if exists "centre_select_newsletters" on public.newsletters;
+drop policy if exists "centre_select_analyses" on public.program_book_analyses;
+
+drop policy if exists "centre_insert_projects" on public.projects;
+drop policy if exists "centre_insert_mindmap" on public.mindmap_nodes;
+drop policy if exists "centre_insert_stories" on public.learning_stories;
+drop policy if exists "centre_insert_activities" on public.activities;
+drop policy if exists "centre_insert_newsletters" on public.newsletters;
+drop policy if exists "centre_insert_analyses" on public.program_book_analyses;
+
+drop policy if exists "centre_update_projects" on public.projects;
+drop policy if exists "centre_update_mindmap" on public.mindmap_nodes;
+drop policy if exists "centre_update_stories" on public.learning_stories;
+drop policy if exists "centre_update_activities" on public.activities;
+drop policy if exists "centre_update_newsletters" on public.newsletters;
+drop policy if exists "centre_update_analyses" on public.program_book_analyses;
+
+drop policy if exists "author_delete_projects" on public.projects;
+drop policy if exists "author_delete_mindmap" on public.mindmap_nodes;
+drop policy if exists "author_delete_stories" on public.learning_stories;
+drop policy if exists "author_delete_activities" on public.activities;
+drop policy if exists "author_delete_newsletters" on public.newsletters;
+drop policy if exists "author_delete_analyses" on public.program_book_analyses;
+
+-- 1. SELECT: Educators in the same centre can access and compile each other's documentation
+create policy "centre_select_projects" on public.projects for select using (auth.role() = 'authenticated');
+create policy "centre_select_mindmap" on public.mindmap_nodes for select using (auth.role() = 'authenticated');
+create policy "centre_select_stories" on public.learning_stories for select using (auth.role() = 'authenticated');
+create policy "centre_select_activities" on public.activities for select using (auth.role() = 'authenticated');
+create policy "centre_select_newsletters" on public.newsletters for select using (auth.role() = 'authenticated');
+create policy "centre_select_analyses" on public.program_book_analyses for select using (auth.role() = 'authenticated');
+
+-- 2. INSERT: Any authenticated educator can create content
+create policy "centre_insert_projects" on public.projects for insert with check (auth.role() = 'authenticated');
+create policy "centre_insert_mindmap" on public.mindmap_nodes for insert with check (auth.role() = 'authenticated');
+create policy "centre_insert_stories" on public.learning_stories for insert with check (auth.role() = 'authenticated');
+create policy "centre_insert_activities" on public.activities for insert with check (auth.role() = 'authenticated');
+create policy "centre_insert_newsletters" on public.newsletters for insert with check (auth.role() = 'authenticated');
+create policy "centre_insert_analyses" on public.program_book_analyses for insert with check (auth.role() = 'authenticated');
+
+-- 3. UPDATE: Educators in the same centre can update and edit content
+create policy "centre_update_projects" on public.projects for update using (auth.role() = 'authenticated');
+create policy "centre_update_mindmap" on public.mindmap_nodes for update using (auth.role() = 'authenticated');
+create policy "centre_update_stories" on public.learning_stories for update using (auth.role() = 'authenticated');
+create policy "centre_update_activities" on public.activities for update using (auth.role() = 'authenticated');
+create policy "centre_update_newsletters" on public.newsletters for update using (auth.role() = 'authenticated');
+create policy "centre_update_analyses" on public.program_book_analyses for update using (auth.role() = 'authenticated');
+
+-- 4. DELETE: Cannot delete other educators' files; ONLY original creator or Centre Director can delete
+create policy "author_delete_projects" on public.projects for delete using (auth.uid() = user_id or auth.jwt()->>'email' = 'kapilpandey@hadfield.edu.au');
+create policy "author_delete_mindmap" on public.mindmap_nodes for delete using (auth.uid() = user_id or auth.jwt()->>'email' = 'kapilpandey@hadfield.edu.au');
+create policy "author_delete_stories" on public.learning_stories for delete using (auth.uid() = user_id or auth.jwt()->>'email' = 'kapilpandey@hadfield.edu.au');
+create policy "author_delete_activities" on public.activities for delete using (auth.uid() = user_id or auth.jwt()->>'email' = 'kapilpandey@hadfield.edu.au');
+create policy "author_delete_newsletters" on public.newsletters for delete using (auth.uid() = user_id or auth.jwt()->>'email' = 'kapilpandey@hadfield.edu.au');
+create policy "author_delete_analyses" on public.program_book_analyses for delete using (auth.uid() = user_id or auth.jwt()->>'email' = 'kapilpandey@hadfield.edu.au');
 
 -- -------------------------------------------------------------------------
 -- `updated_at` triggers for every table.
@@ -280,14 +327,21 @@ create table if not exists public.weekly_wrap_ups (
   updated_at timestamptz not null default now()
 );
 
-create index if not exists weekly_wrap_ups_user_week_idx
-  on public.weekly_wrap_ups (user_id, week_start);
+create index if not exists weekly_wrap_ups_room_week_idx
+  on public.weekly_wrap_ups (room, week_start);
 
 alter table public.weekly_wrap_ups enable row level security;
 
 drop policy if exists "own rows" on public.weekly_wrap_ups;
-create policy "own rows" on public.weekly_wrap_ups
-  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+drop policy if exists "centre_select_wrap_ups" on public.weekly_wrap_ups;
+drop policy if exists "centre_insert_wrap_ups" on public.weekly_wrap_ups;
+drop policy if exists "centre_update_wrap_ups" on public.weekly_wrap_ups;
+drop policy if exists "author_delete_wrap_ups" on public.weekly_wrap_ups;
+
+create policy "centre_select_wrap_ups" on public.weekly_wrap_ups for select using (auth.role() = 'authenticated');
+create policy "centre_insert_wrap_ups" on public.weekly_wrap_ups for insert with check (auth.role() = 'authenticated');
+create policy "centre_update_wrap_ups" on public.weekly_wrap_ups for update using (auth.role() = 'authenticated');
+create policy "author_delete_wrap_ups" on public.weekly_wrap_ups for delete using (auth.uid() = user_id or auth.jwt()->>'email' = 'kapilpandey@hadfield.edu.au');
 
 drop trigger if exists weekly_wrap_ups_updated_at on public.weekly_wrap_ups;
 create trigger weekly_wrap_ups_updated_at

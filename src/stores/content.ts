@@ -4,13 +4,15 @@ import { createRepo, TABLES } from '@/services/repo'
 import { useAuthStore } from './auth'
 import type { Newsletter, ProgramBookAnalysis, WeeklyWrapUp } from '@/types'
 
-const newslettersRepo = createRepo<Newsletter>(TABLES.newsletters)
-const analysesRepo = createRepo<ProgramBookAnalysis>(TABLES.programAnalyses)
-const wrapUpsRepo = createRepo<WeeklyWrapUp>(TABLES.weeklyWrapUps)
+const newslettersRepo = createRepo<Newsletter>(TABLES.newsletters, { centreShared: true })
+const analysesRepo = createRepo<ProgramBookAnalysis>(TABLES.programAnalyses, { centreShared: true })
+const wrapUpsRepo = createRepo<WeeklyWrapUp>(TABLES.weeklyWrapUps, { centreShared: true })
 
 /**
- * Persisted content that is not tied to a single project: newsletters and
- * program-book analyses.
+ * Persisted content that is not tied to a single project: newsletters,
+ * program-book analyses, and room weekly wrap-ups.
+ * All educators in the same centre can access, update, and compile with AI,
+ * but only the author or Admin can delete.
  */
 export const useContentStore = defineStore('content', () => {
   const auth = useAuthStore()
@@ -51,8 +53,19 @@ export const useContentStore = defineStore('content', () => {
     return created
   }
 
+  function canDeleteNewsletter(item: Newsletter): boolean {
+    if (auth.isAdmin) return true
+    return item.user_id === auth.userId
+  }
+
   async function deleteNewsletter(id: string) {
-    await newslettersRepo.remove(scope(), id)
+    const existing = newsletters.value.find(n => n.id === id)
+    if (existing && !canDeleteNewsletter(existing)) {
+      throw new Error(
+        "Cannot delete: Educators in the same centre can view and edit newsletters, but only the original author or Centre Director can delete them.",
+      )
+    }
+    await newslettersRepo.remove(scope(), id, auth.isAdmin)
     newsletters.value = newsletters.value.filter(n => n.id !== id)
   }
 
@@ -87,8 +100,19 @@ export const useContentStore = defineStore('content', () => {
     return created
   }
 
+  function canDeleteAnalysis(item: ProgramBookAnalysis): boolean {
+    if (auth.isAdmin) return true
+    return item.user_id === auth.userId
+  }
+
   async function deleteAnalysis(id: string) {
-    await analysesRepo.remove(scope(), id)
+    const existing = analyses.value.find(a => a.id === id)
+    if (existing && !canDeleteAnalysis(existing)) {
+      throw new Error(
+        "Cannot delete: Educators in the same centre can view and edit program analyses, but only the original author or Centre Director can delete them.",
+      )
+    }
+    await analysesRepo.remove(scope(), id, auth.isAdmin)
     analyses.value = analyses.value.filter(a => a.id !== id)
   }
 
@@ -134,8 +158,19 @@ export const useContentStore = defineStore('content', () => {
     return created
   }
 
+  function canDeleteWrapUp(item: WeeklyWrapUp): boolean {
+    if (auth.isAdmin) return true
+    return item.user_id === auth.userId
+  }
+
   async function deleteWrapUp(id: string) {
-    await wrapUpsRepo.remove(scope(), id)
+    const existing = wrapUps.value.find(w => w.id === id)
+    if (existing && !canDeleteWrapUp(existing)) {
+      throw new Error(
+        "Cannot delete: Educators in the same centre can view and update each other's weekly wrap-ups, but only the original author or Centre Director can delete them.",
+      )
+    }
+    await wrapUpsRepo.remove(scope(), id, auth.isAdmin)
     wrapUps.value = wrapUps.value.filter(w => w.id !== id)
   }
 
@@ -147,12 +182,15 @@ export const useContentStore = defineStore('content', () => {
     loadNewsletters,
     saveNewsletter,
     deleteNewsletter,
+    canDeleteNewsletter,
     loadAnalyses,
     saveAnalysis,
     deleteAnalysis,
+    canDeleteAnalysis,
     loadWrapUps,
     findWrapUp,
     saveWrapUp,
     deleteWrapUp,
+    canDeleteWrapUp,
   }
 })

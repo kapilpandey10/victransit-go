@@ -58,17 +58,24 @@ export interface RepoOptions {
    * (e.g. rooms, staff access list, topic statuses) and queries are not scoped to user_id.
    */
   isGlobal?: boolean
+  /**
+   * If true, documentation files are shared across all educators in the same centre:
+   * they can read, update, and compile them with AI, but only the author or Admin can delete.
+   */
+  centreShared?: boolean
 }
 
 export function createRepo<T extends BaseRecord>(table: string, opts: RepoOptions = {}) {
   const isGlobal = Boolean(opts.isGlobal)
+  const isCentreShared = Boolean(opts.centreShared)
+  const isShared = isGlobal || isCentreShared
 
   return {
     async list(userId: string, options: QueryOptions = {}): Promise<T[]> {
       const sb = trySupabase()
       if (sb) {
         let q = sb.from(table).select('*')
-        if (!isGlobal) {
+        if (!isShared) {
           q = q.eq('user_id', userId)
         }
         if (options.where) {
@@ -83,7 +90,7 @@ export function createRepo<T extends BaseRecord>(table: string, opts: RepoOption
         return (data ?? []) as T[]
       }
 
-      let rows = isGlobal
+      let rows = isShared
         ? localAll<T>(table)
         : localAll<T>(table).filter(r => r.user_id === userId)
 
@@ -106,7 +113,7 @@ export function createRepo<T extends BaseRecord>(table: string, opts: RepoOption
       const sb = trySupabase()
       if (sb) {
         let q = sb.from(table).select('*').eq('id', id)
-        if (!isGlobal) {
+        if (!isShared) {
           q = q.eq('user_id', userId)
         }
         const { data, error } = await q.maybeSingle()
@@ -114,7 +121,7 @@ export function createRepo<T extends BaseRecord>(table: string, opts: RepoOption
         return (data as T) ?? null
       }
       return (
-        localAll<T>(table).find(r => r.id === id && (isGlobal || r.user_id === userId)) ??
+        localAll<T>(table).find(r => r.id === id && (isShared || r.user_id === userId)) ??
         null
       )
     },
@@ -171,7 +178,7 @@ export function createRepo<T extends BaseRecord>(table: string, opts: RepoOption
           .update({ ...(patch as Record<string, unknown>), updated_at: nowIso() } as never)
           .eq('id', id)
 
-        if (!isGlobal) {
+        if (!isShared) {
           q = q.eq('user_id', userId)
         }
 
@@ -181,7 +188,7 @@ export function createRepo<T extends BaseRecord>(table: string, opts: RepoOption
       }
 
       const rows = localAll<T>(table)
-      const idx = rows.findIndex(r => r.id === id && (isGlobal || r.user_id === userId))
+      const idx = rows.findIndex(r => r.id === id && (isShared || r.user_id === userId))
       if (idx === -1) throw new Error(`${table}: record ${id} not found`)
       const next = { ...rows[idx], ...patch, updated_at: nowIso() } as T
       rows[idx] = next
@@ -189,11 +196,21 @@ export function createRepo<T extends BaseRecord>(table: string, opts: RepoOption
       return next
     },
 
-    async remove(userId: string, id: string): Promise<void> {
+    async remove(userId: string, id: string, isAdmin = false): Promise<void> {
+      // Collaboration check: If file is centre-shared, only original author or Centre Director can delete
+      if (isCentreShared) {
+        const item = await this.get(userId, id)
+        if (item && item.user_id && item.user_id !== userId && !isAdmin) {
+          throw new Error(
+            "Cannot delete: Educators in the same centre can view and update each other's documentation, but only the original author or Centre Director can delete it.",
+          )
+        }
+      }
+
       const sb = trySupabase()
       if (sb) {
         let q = sb.from(table).delete().eq('id', id)
-        if (!isGlobal) {
+        if (!isShared) {
           q = q.eq('user_id', userId)
         }
         const { error } = await q
@@ -202,7 +219,7 @@ export function createRepo<T extends BaseRecord>(table: string, opts: RepoOption
       }
       localSave(
         table,
-        localAll<T>(table).filter(r => !(r.id === id && (isGlobal || r.user_id === userId))),
+        localAll<T>(table).filter(r => !(r.id === id && (isShared || r.user_id === userId))),
       )
     },
 

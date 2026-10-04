@@ -46,8 +46,12 @@ async function create() {
 
 async function remove(id: string, title: string) {
   if (!window.confirm(`Delete “${title}”? This cannot be undone.`)) return
-  await projects.deleteProject(id)
-  ui.showToast('Project deleted', 'info')
+  try {
+    await projects.deleteProject(id)
+    ui.showToast('Project deleted', 'info')
+  } catch (err: unknown) {
+    ui.showToast((err as Error)?.message || 'Failed to delete project', 'error')
+  }
 }
 
 onMounted(() => projects.loadProjects())
@@ -157,9 +161,21 @@ onMounted(() => projects.loadProjects())
           <RouterLink :to="`/projects/${project.id}`" class="btn-primary flex-1 !py-2 text-xs">
             Open workspace
           </RouterLink>
-          <button class="btn-ghost !px-3 !py-2 text-xs" @click="remove(project.id, project.title)">
+          <button
+            v-if="projects.canDeleteProject(project)"
+            class="btn-ghost !px-3 !py-2 text-xs text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30"
+            title="Delete project"
+            @click="remove(project.id, project.title)"
+          >
             🗑
           </button>
+          <span
+            v-else
+            class="inline-flex items-center text-[10px] text-slate-400 px-2 py-1 select-none"
+            title="Shared with centre: You can edit and compile with AI, but only the author or Director can delete"
+          >
+            🔒 Shared
+          </span>
         </div>
       </article>
     </div>

@@ -323,13 +323,17 @@ async function selectDraft(w: WeeklyWrapUp) {
 
 async function deleteDraft(id: string) {
   if (!window.confirm('Delete this saved wrap-up draft?')) return
-  await content.deleteWrapUp(id)
-  if (recordId.value === id) {
-    recordId.value = null
-    result.value = ''
-    savedLabel.value = 'Not saved yet'
+  try {
+    await content.deleteWrapUp(id)
+    if (recordId.value === id) {
+      recordId.value = null
+      result.value = ''
+      savedLabel.value = 'Not saved yet'
+    }
+    ui.showToast('Draft deleted', 'info')
+  } catch (err: unknown) {
+    ui.showToast((err as Error)?.message || 'Failed to delete draft', 'error')
   }
-  ui.showToast('Draft deleted', 'info')
 }
 </script>
 
@@ -628,9 +632,21 @@ async function deleteDraft(id: string) {
             <button class="btn-secondary flex-1 !py-1.5 text-xs" @click="selectDraft(w)">
               ✏️ Open
             </button>
-            <button class="btn-ghost !px-3 !py-1.5 text-xs" title="Delete draft" @click="deleteDraft(w.id)">
+            <button
+              v-if="content.canDeleteWrapUp(w)"
+              class="btn-ghost !px-3 !py-1.5 text-xs text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30"
+              title="Delete draft"
+              @click="deleteDraft(w.id)"
+            >
               🗑
             </button>
+            <span
+              v-else
+              class="inline-flex items-center text-[10px] text-slate-400 px-2 py-1 select-none"
+              title="Shared with centre: You can edit and compile with AI, but only the author or Director can delete"
+            >
+              🔒 Shared
+            </span>
           </div>
         </article>
       </div>

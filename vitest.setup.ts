@@ -13,3 +13,7 @@ if (typeof globalThis.localStorage === 'undefined') {
   }
   Object.defineProperty(globalThis, 'localStorage', { value: storage })
 }
+
+if (typeof import.meta.env !== 'undefined') {
+  import.meta.env.VITE_SUPABASE_ANON_KEY = ''
+}

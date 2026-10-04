@@ -9,6 +9,7 @@ import type { Profile } from '@/types'
 
 const PROFILE_KEY = 'profile'
 const DEMO_EMAIL_KEY = 'hadfield:v1:demo_user_email'
+export const ADMIN_EMAIL = 'kapilpandey@hadfield.edu.au'
 
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<User | null>(null)
@@ -18,9 +19,12 @@ export const useAuthStore = defineStore('auth', () => {
   const isAuthenticated = computed(() => Boolean(user.value))
   const userId = computed(() => user.value?.id ?? null)
   const userEmail = computed(() => (user.value?.email || '').toLowerCase().trim())
-  const userRole = computed(() => profile.value?.role || 'Educator')
+  const userRole = computed(() => {
+    if (isAdmin.value) return 'Centre Director'
+    return 'Educator'
+  })
 
-  /** Data scope id — falls back to the demo id so the UI stays usable. */
+  /** Scope id — falls back to the demo id so the UI stays usable. */
   const scopeId = computed(() => user.value?.id ?? DEMO_USER_ID)
 
   const displayName = computed(
@@ -31,32 +35,27 @@ export const useAuthStore = defineStore('auth', () => {
       'Educator',
   )
 
+  const centreName = computed(
+    () => profile.value?.centre_name || 'Hadfield Early Learning Centre',
+  )
+
   const demoMode = computed(() => !isSupabaseConfigured)
 
-  /** Check if the current user is an Admin / Centre Director */
+  /** Check if the current user is an Admin: strictly one email as admin */
   const isAdmin = computed(() => {
     const email = userEmail.value
     if (!email) return false
-    if (email === 'kapilpandey@hadfield.edu.au' || email === 'admin@hadfield.local') return true
-    if (profile.value?.role === 'Centre Director' || profile.value?.role === 'Admin') return true
-
-    // Check with admin store if initialised
-    const admin = useAdminStore()
-    if (admin.isEmailAdmin(email)) return true
-    return false
+    return email === ADMIN_EMAIL || email === 'admin@hadfield.local'
   })
 
   /** Check if the user's email is whitelisted in teacher_access */
   const isAuthorized = computed(() => {
     if (!isAuthenticated.value) return false
     const email = userEmail.value
-    if (email === 'kapilpandey@hadfield.edu.au' || email === 'admin@hadfield.local') return true
+    if (email === ADMIN_EMAIL || email === 'admin@hadfield.local') return true
 
     const admin = useAdminStore()
     if (admin.isEmailAuthorized(email)) return true
-
-    // If profile role is Centre Director, grant authorization
-    if (profile.value?.role === 'Centre Director') return true
 
     return false
   })
@@ -136,7 +135,26 @@ export const useAuthStore = defineStore('auth', () => {
       .select('*')
       .eq('id', user.value.id)
       .maybeSingle()
-    profile.value = (data as Profile) ?? null
+
+    const email = (user.value.email || '').toLowerCase().trim()
+    const isDirector = email === ADMIN_EMAIL || email === 'admin@hadfield.local'
+    const assignedRole = isDirector ? 'Centre Director' : 'Educator'
+
+    profile.value = data
+      ? {
+          ...(data as Profile),
+          role: assignedRole,
+          centre_name: (data as Profile).centre_name || 'Hadfield Early Learning Centre',
+        }
+      : {
+          id: user.value.id,
+          full_name: (user.value.user_metadata?.full_name as string) || email.split('@')[0],
+          centre_name: 'Hadfield Early Learning Centre',
+          room: 'All Rooms',
+          role: assignedRole,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }
   }
 
   async function saveProfile(patch: Partial<Profile>) {
@@ -283,6 +301,7 @@ export const useAuthStore = defineStore('auth', () => {
     userId,
     userEmail,
     userRole,
+    centreName,
     scopeId,
     displayName,
     demoMode,
