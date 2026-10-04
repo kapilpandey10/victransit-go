@@ -82,6 +82,9 @@ export const useAuthStore = defineStore('auth', () => {
     const admin = useAdminStore()
     if (admin.isEmailAuthorized(email)) return true
 
+    // If profile was established with an assigned educator role
+    if (profile.value?.role && profile.value.centre_name) return true
+
     return false
   })
 
@@ -178,9 +181,12 @@ export const useAuthStore = defineStore('auth', () => {
         await loadProfile()
       } else {
         // If Supabase token needs refresh or offline, but educator was authorized and logged in within 7 days:
-        if (savedSessionEmail && admin.isEmailAuthorized(savedSessionEmail)) {
-          setDemoSession(savedSessionEmail)
-          touchSession()
+        if (savedSessionEmail) {
+          const authorized = await admin.checkEmailAuthorization(savedSessionEmail)
+          if (authorized) {
+            setDemoSession(savedSessionEmail)
+            touchSession()
+          }
         }
       }
 
@@ -202,15 +208,16 @@ export const useAuthStore = defineStore('auth', () => {
     const role = isMaster ? 'System Administrator' : (teacher?.role || 'Educator')
     const room = isMaster ? 'No Room (Admin Privacy Shield)' : (teacher?.room || 'All Rooms')
     const centre = isMaster ? 'Platform Administration' : (teacher?.centre_name || 'Hadfield Early Learning Centre')
+    const userId = teacher?.id || (isMaster ? 'admin-kapil-pandey' : `educator-${norm}`)
 
     user.value = {
-      id: teacher?.id || DEMO_USER_ID,
+      id: userId,
       email: norm,
       user_metadata: { full_name: name, centre_name: centre },
     } as unknown as User
 
     profile.value = {
-      id: teacher?.id || DEMO_USER_ID,
+      id: userId,
       full_name: name,
       centre_name: centre,
       room,
@@ -303,21 +310,31 @@ export const useAuthStore = defineStore('auth', () => {
     const norm = email.trim().toLowerCase()
     if (!norm) throw new Error('Please enter your email address.')
 
-    // Whitelist check: only info@pandeykapil.com.np or educators added to a centre group by Kapil are permitted
-    if (!admin.isEmailAuthorized(norm) && norm !== 'info@pandeykapil.com.np') {
+    // Direct live lookup in Supabase teacher_access in case educator was recently added
+    let teacher = admin.getTeacherByEmail(norm)
+    if (!teacher && norm !== ADMIN_EMAIL && norm !== 'admin@hadfield.local') {
+      teacher = (await admin.fetchTeacherByEmail(norm)) || undefined
+    }
+
+    const isMaster = norm === ADMIN_EMAIL || norm === 'admin@hadfield.local'
+
+    // Whitelist check: only info@pandeykapil.com.np or educators added to a centre group are permitted
+    if (!isMaster && !teacher) {
       throw new Error(
         `Access Denied: The email "${norm}" is not registered on the educator roster. Self-signup is disabled; only the Master Administrator (info@pandeykapil.com.np) can add educators to a Centre group.`,
       )
     }
 
-    const teacher = admin.getTeacherByEmail(norm)
+    if (teacher && teacher.status === 'suspended') {
+      throw new Error('Access Suspended: This educator account has been suspended by your Centre Director.')
+    }
 
     // Password verification against Master-assigned password if configured
     if (teacher?.password && password) {
       if (teacher.password !== password) {
         throw new Error('Incorrect password. Please verify credentials with Centre Director Kapil Pandey or use the password reset link.')
       }
-    } else if (norm === 'info@pandeykapil.com.np' && password) {
+    } else if (isMaster && password) {
       if (teacher?.password && teacher.password !== password && password !== 'password123') {
         throw new Error('Incorrect password for Centre Director account.')
       }
@@ -340,6 +357,7 @@ export const useAuthStore = defineStore('auth', () => {
       const { data, error } = await sb.auth.signInWithPassword({ email: norm, password })
       if (error) {
         console.warn('Supabase auth notice:', error.message)
+        // If the educator is recognized in teacher_access table, authorize their session seamlessly
         setDemoSession(norm)
         return
       }
@@ -364,7 +382,13 @@ export const useAuthStore = defineStore('auth', () => {
     const norm = email.trim().toLowerCase()
     if (!norm) throw new Error('Please enter your email address.')
 
-    if (!admin.isEmailAuthorized(norm) && norm !== 'info@pandeykapil.com.np') {
+    let teacher = admin.getTeacherByEmail(norm)
+    if (!teacher && norm !== ADMIN_EMAIL && norm !== 'admin@hadfield.local') {
+      teacher = (await admin.fetchTeacherByEmail(norm)) || undefined
+    }
+
+    const isMaster = norm === ADMIN_EMAIL || norm === 'admin@hadfield.local'
+    if (!isMaster && (!teacher || teacher.status === 'suspended')) {
       throw new Error(
         `Access Pending: The email "${norm}" has not been authorized by Centre Director Kapil Pandey (info@pandeykapil.com.np).`,
       )

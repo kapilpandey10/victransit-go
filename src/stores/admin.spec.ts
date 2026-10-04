@@ -81,4 +81,32 @@ describe('useAdminStore', () => {
     await admin.setTopicStatus('learning-stories', 'active')
     expect(admin.isTopicUnderDevelopment('learning-stories')).toBe(false)
   })
+
+  it('checks email authorization on-demand and case-insensitively', async () => {
+    const admin = useAdminStore()
+    await admin.init()
+
+    expect(await admin.checkEmailAuthorization('info@pandeykapil.com.np')).toBe(true)
+    expect(await admin.checkEmailAuthorization('INFO@PANDEYKAPIL.COM.NP')).toBe(true)
+    expect(await admin.checkEmailAuthorization('unknown@example.com')).toBe(false)
+
+    await admin.addTeacher({
+      email: 'Sarah.Jenkins@hadfield.edu.au',
+      name: 'Sarah Jenkins',
+      role: 'Educator',
+      room: 'Sweet Peas',
+      centre_name: 'Hadfield Early Learning Centre',
+      password: 'SecretPassword2026!',
+      status: 'active',
+      notes: 'Toddler room educator',
+    })
+
+    expect(await admin.checkEmailAuthorization('sarah.jenkins@hadfield.edu.au')).toBe(true)
+    expect(await admin.checkEmailAuthorization('SARAH.JENKINS@HADFIELD.EDU.AU ')).toBe(true)
+
+    const fetched = await admin.fetchTeacherByEmail('sarah.jenkins@hadfield.edu.au')
+    expect(fetched).toBeDefined()
+    expect(fetched?.name).toBe('Sarah Jenkins')
+    expect(fetched?.room).toBe('Sweet Peas')
+  })
 })

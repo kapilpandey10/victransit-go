@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { createRepo, TABLES } from '@/services/repo'
+import { readLocal } from '@/services/localStore'
+import { trySupabase } from '@/services/supabase'
 import { useAuthStore } from './auth'
 import { useRoomsStore } from './rooms'
 import type {
@@ -277,19 +279,37 @@ export const useAdminStore = defineStore('admin', () => {
     try {
       const list = await teacherRepo.list(scope(), { orderBy: 'created_at', ascending: true })
       if (list.length > 0) {
-        teachers.value = list
+        // Merge remote list with any in-memory or locally added teachers
+        const byEmail = new Map<string, TeacherAccess>()
+        for (const t of list) byEmail.set(t.email.toLowerCase().trim(), t)
+        for (const t of teachers.value) {
+          const norm = t.email.toLowerCase().trim()
+          if (!byEmail.has(norm)) byEmail.set(norm, t)
+        }
+        teachers.value = Array.from(byEmail.values())
       } else {
-        // If database is empty, display only the Master Director
-        teachers.value = DEFAULT_TEACHERS.map((t, idx) => ({
-          ...t,
-          id: `master-director-${idx}`,
-          user_id: '',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        }))
+        // Fallback: Check localStorage table:teacher_access first before falling back to only DEFAULT_TEACHERS
+        const localList = readLocal<TeacherAccess[]>('table:teacher_access', [])
+        if (localList.length > 0) {
+          const byEmail = new Map<string, TeacherAccess>()
+          for (const t of localList) byEmail.set(t.email.toLowerCase().trim(), t)
+          for (const t of teachers.value) {
+            const norm = t.email.toLowerCase().trim()
+            if (!byEmail.has(norm)) byEmail.set(norm, t)
+          }
+          teachers.value = Array.from(byEmail.values())
+        } else if (teachers.value.length === 0) {
+          teachers.value = DEFAULT_TEACHERS.map((t, idx) => ({
+            ...t,
+            id: `master-director-${idx}`,
+            user_id: '',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          }))
+        }
       }
     } catch {
-      // Retain Master Director default if remote query fails
+      // Retain Master Director default or existing list if remote query fails
     }
   }
 
@@ -421,8 +441,8 @@ export const useAdminStore = defineStore('admin', () => {
     centres.value = centres.value.filter(c => c.id !== id)
   }
 
-  async function init() {
-    if (initialised.value) return
+  async function init(force = false) {
+    if (initialised.value && !force) return
     loading.value = true
     try {
       await Promise.allSettled([loadCentres(), loadTeachers(), loadTopics()])
@@ -527,6 +547,68 @@ export const useAdminStore = defineStore('admin', () => {
     return false
   }
 
+  function upsertTeacherInMemory(teacher: TeacherAccess) {
+    const norm = teacher.email.toLowerCase().trim()
+    const idx = teachers.value.findIndex(t => t.email.toLowerCase().trim() === norm)
+    if (idx >= 0) {
+      teachers.value[idx] = { ...teachers.value[idx], ...teacher }
+    } else {
+      teachers.value = [teacher, ...teachers.value]
+    }
+  }
+
+  /** Direct on-demand database lookup for newly added educators in Supabase */
+  async function fetchTeacherByEmail(email: string): Promise<TeacherAccess | null> {
+    const norm = email.trim().toLowerCase()
+    if (!norm) return null
+
+    // Check memory first
+    const inMem = teachers.value.find(t => t.email.toLowerCase().trim() === norm)
+    if (inMem) return inMem
+
+    // Live query to Supabase teacher_access table
+    const sb = trySupabase()
+    if (sb) {
+      try {
+        const { data, error } = await sb
+          .from('teacher_access')
+          .select('*')
+          .ilike('email', norm)
+          .maybeSingle()
+        if (!error && data) {
+          const loaded = data as TeacherAccess
+          upsertTeacherInMemory(loaded)
+          return loaded
+        }
+      } catch (err) {
+        console.warn('Direct teacher lookup notice:', err)
+      }
+    }
+
+    // Check localStorage fallback
+    const localList = readLocal<TeacherAccess[]>('table:teacher_access', [])
+    const found = localList.find(t => t.email.toLowerCase().trim() === norm)
+    if (found) {
+      upsertTeacherInMemory(found)
+      return found
+    }
+
+    return null
+  }
+
+  async function checkEmailAuthorization(email: string): Promise<boolean> {
+    const norm = email.trim().toLowerCase()
+    if (!norm) return false
+    if (norm === 'info@pandeykapil.com.np' || norm === 'admin@hadfield.local') return true
+
+    let teacher = getTeacherByEmail(norm)
+    if (!teacher) {
+      teacher = (await fetchTeacherByEmail(norm)) || undefined
+    }
+    if (!teacher) return false
+    return teacher.status === 'active' || teacher.status === 'invited'
+  }
+
   function getTopic(topicKeyOrPath: string): TopicModuleStatus | undefined {
     return topicsByKey.value.get(topicKeyOrPath) || topicsByPath.value.get(topicKeyOrPath)
   }
@@ -539,7 +621,7 @@ export const useAdminStore = defineStore('admin', () => {
   function isEmailAdmin(email: string): boolean {
     const norm = email.trim().toLowerCase()
     if (!norm) return false
-    if (norm === 'info@pandeykapil.com.np') return true
+    if (norm === 'info@pandeykapil.com.np' || norm === 'admin@hadfield.local') return true
     const teacher = getTeacherByEmail(norm)
     if (!teacher) return false
     return Boolean(teacher.is_admin || teacher.role === 'Centre Director')
@@ -548,7 +630,7 @@ export const useAdminStore = defineStore('admin', () => {
   function isEmailAuthorized(email: string): boolean {
     const norm = email.trim().toLowerCase()
     if (!norm) return false
-    if (norm === 'info@pandeykapil.com.np') return true
+    if (norm === 'info@pandeykapil.com.np' || norm === 'admin@hadfield.local') return true
     const teacher = getTeacherByEmail(norm)
     if (!teacher) return false
     return teacher.status === 'active' || teacher.status === 'invited'
@@ -585,6 +667,9 @@ export const useAdminStore = defineStore('admin', () => {
     isTopicUnderDevelopment,
     getTopic,
     getTeacherByEmail,
+    fetchTeacherByEmail,
+    checkEmailAuthorization,
+    upsertTeacherInMemory,
     isEmailAdmin,
     isEmailAuthorized,
   }

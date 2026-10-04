@@ -22,13 +22,17 @@ const forgotLoading = ref(false)
 const errorMessage = ref<string | null>(null)
 
 onMounted(async () => {
-  await admin.init()
+  await admin.init(true)
   if (route.query.email) {
     email.value = String(route.query.email)
   }
 })
 
-const redirectTarget = computed(() => (route.query.redirect as string) || '/dashboard')
+const redirectTarget = computed(() => {
+  const target = (route.query.redirect as string) || '/'
+  if (target === '/login' || target === '/unauthorized') return '/'
+  return target
+})
 
 async function handleLogin() {
   errorMessage.value = null
@@ -46,7 +50,11 @@ async function handleLogin() {
       }
       await auth.signIn(normEmail, password.value)
       ui.showToast(`Welcome back, ${auth.displayName}!`, 'success')
-      await router.push(redirectTarget.value)
+      if (auth.isAdmin) {
+        await router.push('/admin')
+      } else {
+        await router.push(redirectTarget.value)
+      }
     } else {
       await auth.signInWithOtp(normEmail)
       ui.showToast('Magic login link sent to your email!', 'success')

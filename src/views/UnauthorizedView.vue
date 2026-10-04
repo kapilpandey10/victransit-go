@@ -1,12 +1,39 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { useAdminStore } from '@/stores/admin'
 
 const auth = useAuthStore()
+const admin = useAdminStore()
 const router = useRouter()
 
 const isNotAdmin = computed(() => auth.isAuthenticated && !auth.isAdmin)
+const checking = ref(false)
+
+async function checkAccessNow() {
+  const email = auth.userEmail
+  if (!email) return
+  checking.value = true
+  try {
+    const isAuthed = await admin.checkEmailAuthorization(email)
+    if (isAuthed) {
+      if (auth.isAdmin) {
+        await router.push('/admin')
+      } else {
+        await router.push('/')
+      }
+    }
+  } finally {
+    checking.value = false
+  }
+}
+
+onMounted(() => {
+  if (auth.userEmail) {
+    void checkAccessNow()
+  }
+})
 
 async function handleSignOut() {
   await auth.signOut()
@@ -47,18 +74,21 @@ async function handleSignOut() {
           <a href="mailto:info@pandeykapil.com.np" class="text-brand-400 underline font-bold">
             info@pandeykapil.com.np
           </a>
-          to grant login authorization for your room or role.
+          to grant login authorization for your room or role. If your account was added just now, click the button below to re-verify against the database.
         </p>
       </div>
 
       <!-- Button Controls -->
       <div class="flex flex-col sm:flex-row items-center justify-center gap-2 pt-2">
-        <RouterLink
-          to="/dashboard"
+        <button
+          type="button"
+          :disabled="checking"
           class="btn-primary w-full sm:w-auto text-xs font-bold"
+          @click="checkAccessNow"
         >
-          &larr; Back to Educator Dashboard
-        </RouterLink>
+          <span v-if="checking">Checking database...</span>
+          <span v-else>🔄 Check Access Now</span>
+        </button>
 
         <button
           type="button"

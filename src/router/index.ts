@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { useAdminStore } from '@/stores/admin'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -114,7 +115,11 @@ router.beforeEach(async (to, _from, next) => {
   }
 
   if (auth.isAuthenticated && !auth.isAuthorized && to.path !== '/unauthorized') {
-    return next('/unauthorized')
+    const admin = useAdminStore()
+    const isAuthed = await admin.checkEmailAuthorization(auth.userEmail)
+    if (!isAuthed) {
+      return next('/unauthorized')
+    }
   }
 
   if (to.meta.requiresAdmin && !auth.isAdmin) {
