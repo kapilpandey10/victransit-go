@@ -484,10 +484,20 @@ create trigger centres_updated_at
 -- Centre Group Scoping & Schema Column Migrations
 -- -------------------------------------------------------------------------
 alter table public.rooms add column if not exists centre_name text not null default 'Hadfield Early Learning Centre';
+alter table public.rooms add column if not exists description text default '';
+alter table public.rooms add column if not exists sort_order int not null default 0;
+alter table public.rooms add column if not exists is_active boolean not null default true;
 create index if not exists rooms_centre_name_idx on public.rooms (centre_name);
 
+alter table public.teacher_access add column if not exists is_admin boolean not null default false;
 alter table public.teacher_access add column if not exists centre_name text not null default 'Hadfield Early Learning Centre';
 alter table public.teacher_access add column if not exists password text default 'Educator2026!';
+alter table public.teacher_access add column if not exists role text not null default 'Educator';
+alter table public.teacher_access add column if not exists room text not null default 'All Rooms';
+alter table public.teacher_access add column if not exists status text not null default 'active';
+alter table public.teacher_access add column if not exists notes text default '';
+alter table public.teacher_access add column if not exists invited_at timestamptz default now();
+alter table public.teacher_access add column if not exists last_active_at timestamptz default now();
 create index if not exists teacher_access_centre_name_idx on public.teacher_access (centre_name);
 
 alter table public.projects add column if not exists centre_name text not null default 'Hadfield Early Learning Centre';
