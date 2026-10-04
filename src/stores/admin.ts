@@ -52,6 +52,15 @@ export const DEFAULT_TOPICS: Array<{
       'Individual child documentation featuring 1/4 A3 compact photo layouts and EYLF V2.0 sub-outcomes.',
   },
   {
+    topic_key: 'collage',
+    title: 'Photo Collage & Canvas Studio',
+    icon: '🖼️',
+    route_path: '/collage',
+    status: 'active',
+    leadership_notes:
+      'In-browser photo collage maker with zero-database child privacy. Create 4/5/6/8 grid layouts or freeform canvas with EYLF badges, child quotes, and touch-resize controls.',
+  },
+  {
     topic_key: 'program-book',
     title: 'Program Book Analysis',
     icon: '🔍',

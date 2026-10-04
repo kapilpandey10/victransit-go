@@ -46,6 +46,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: 'Learning stories', icon: '📖' },
   },
   {
+    path: '/collage',
+    name: 'collage',
+    component: () => import('@/views/CollageView.vue'),
+    meta: { title: 'Photo collage studio', icon: '🖼️' },
+  },
+  {
     path: '/weekly-wrap-up',
     name: 'weekly-wrap-up',
     component: () => import('@/views/WeeklyWrapUpView.vue'),
@@ -136,7 +142,7 @@ router.beforeEach(async (to, _from, next) => {
   if (
     auth.isAdmin &&
     (to.path === '/' ||
-      ['projects', 'project-workspace', 'learning-stories', 'weekly-wrap-up', 'newsletters', 'program-book'].includes(
+      ['projects', 'project-workspace', 'learning-stories', 'collage', 'weekly-wrap-up', 'newsletters', 'program-book'].includes(
         to.name as string,
       ))
   ) {

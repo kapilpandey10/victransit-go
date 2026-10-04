@@ -500,6 +500,21 @@ onMounted(() => {
       if ([1, 2, 3, 4, 5].includes(oc)) draft.eylf_outcome_ids = [oc]
     }
   }
+
+  // Import collage generated in CollageView
+  if (route.query.fromCollage || (typeof window !== 'undefined' && window.sessionStorage?.getItem('hadfield:v1:pending_collage_photo'))) {
+    const pendingCollage = window.sessionStorage?.getItem('hadfield:v1:pending_collage_photo')
+    if (pendingCollage) {
+      mode.value = 'write'
+      if (draft.photo_urls.length < 2) {
+        draft.photo_urls.push(pendingCollage)
+      } else {
+        draft.photo_urls[0] = pendingCollage
+      }
+      window.sessionStorage.removeItem('hadfield:v1:pending_collage_photo')
+      ui.showToast('Photo collage imported into learning story!', 'success')
+    }
+  }
 })
 </script>
 
@@ -1088,14 +1103,24 @@ onMounted(() => {
                 </p>
               </div>
 
-              <button
-                v-if="draft.photo_urls.length < 2"
-                type="button"
-                class="btn-secondary !py-1.5 !px-3 text-xs font-bold"
-                @click="triggerAddPhoto"
-              >
-                ＋ Add Photo
-              </button>
+              <div class="flex items-center gap-2">
+                <RouterLink
+                  to="/collage"
+                  class="btn-secondary !py-1.5 !px-3 text-xs font-bold flex items-center gap-1.5"
+                  title="Make a multi-photo collage"
+                >
+                  <span>🖼️</span>
+                  <span>Collage Studio</span>
+                </RouterLink>
+                <button
+                  v-if="draft.photo_urls.length < 2"
+                  type="button"
+                  class="btn-secondary !py-1.5 !px-3 text-xs font-bold"
+                  @click="triggerAddPhoto"
+                >
+                  ＋ Add Photo
+                </button>
+              </div>
             </div>
 
             <!-- Empty upload prompt -->
