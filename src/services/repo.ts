@@ -250,4 +250,5 @@ export const TABLES = {
   weeklyWrapUps: 'weekly_wrap_ups',
   teacherAccess: 'teacher_access',
   topicStatuses: 'topic_statuses',
+  rooms: 'rooms',
 } as const

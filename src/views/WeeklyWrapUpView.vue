@@ -5,6 +5,7 @@ import { PROMPTS } from '@/data/prompts'
 import { ROOMS, roomTitle } from '@/data/rooms'
 import { useAiTask } from '@/composables/useAiTask'
 import { useContentStore } from '@/stores/content'
+import { useRoomsStore } from '@/stores/rooms'
 import { useUiStore } from '@/stores/ui'
 import {
   cleanPlainText,
@@ -26,12 +27,17 @@ import {
 import type { WeeklyWrapUp } from '@/types'
 
 const content = useContentStore()
+const roomsStore = useRoomsStore()
 const ui = useUiStore()
 const ai = useAiTask()
 
+const roomList = computed(() => roomsStore.roomNames)
+
 // --- context: room + week (defaults: Blossoms, this week) -------------------
 const lastRoom = localStorage.getItem('hadfield:v1:last-wrapup-room')
-const room = ref<string>(ROOMS.includes(lastRoom as never) ? lastRoom! : ROOMS[0])
+const room = ref<string>(
+  lastRoom && ROOMS.includes(lastRoom as never) ? lastRoom : (roomsStore.roomNames[0] || 'Blossoms'),
+)
 const anchor = ref<Date>(new Date())
 const week = computed<WeekRange>(() => formatWeek(anchor.value))
 
@@ -234,6 +240,7 @@ watch(
 )
 
 onMounted(async () => {
+  await roomsStore.loadRooms()
   defaultDay()
   await loadContext()
 })
@@ -336,7 +343,7 @@ async function deleteDraft(id: string) {
         <div>
           <label class="field-label" for="wu-room">Room</label>
           <select id="wu-room" v-model="room" class="input font-bold">
-            <option v-for="r in ROOMS" :key="r" :value="r">{{ r }}</option>
+            <option v-for="r in roomList" :key="r" :value="r">{{ r }}</option>
           </select>
         </div>
 

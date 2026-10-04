@@ -110,6 +110,7 @@ export const DEFAULT_TEACHERS: Array<{
   role: TeacherRole
   room: string
   status: TeacherAccessStatus
+  is_admin?: boolean
   notes: string
 }> = [
   {
@@ -118,6 +119,7 @@ export const DEFAULT_TEACHERS: Array<{
     role: 'Centre Director',
     room: 'All Rooms',
     status: 'active',
+    is_admin: true,
     notes: 'Service Director and System Administrator.',
   },
   {
@@ -126,6 +128,7 @@ export const DEFAULT_TEACHERS: Array<{
     role: 'Educational Leader',
     room: 'All Rooms',
     status: 'active',
+    is_admin: false,
     notes: 'Curriculum oversight, pedagogical reflection, and educator coaching.',
   },
   {
@@ -134,6 +137,7 @@ export const DEFAULT_TEACHERS: Array<{
     role: 'Early Childhood Teacher',
     room: 'Dandelions',
     status: 'active',
+    is_admin: false,
     notes: 'Funded Kindergarten program lead and STEM investigations.',
   },
   {
@@ -142,6 +146,7 @@ export const DEFAULT_TEACHERS: Array<{
     role: 'Room Leader',
     room: 'Butter Beans',
     status: 'active',
+    is_admin: false,
     notes: 'Toddler room inquiry and play schema documentation.',
   },
   {
@@ -150,6 +155,7 @@ export const DEFAULT_TEACHERS: Array<{
     role: 'Early Childhood Teacher',
     room: 'Rosellas',
     status: 'invited',
+    is_admin: false,
     notes: 'Pre-kindergarten early literacy and transitions.',
   },
   {
@@ -158,6 +164,7 @@ export const DEFAULT_TEACHERS: Array<{
     role: 'Educator',
     room: 'Blossoms',
     status: 'active',
+    is_admin: false,
     notes: 'Nursery infant sensory play and primary caregiving.',
   },
 ]
@@ -265,6 +272,7 @@ export const useAdminStore = defineStore('admin', () => {
     role: TeacherRole
     room: string
     status?: TeacherAccessStatus
+    is_admin?: boolean
     notes?: string
   }) {
     const emailNorm = payload.email.trim().toLowerCase()
@@ -274,12 +282,14 @@ export const useAdminStore = defineStore('admin', () => {
       throw new Error(`Teacher with email ${emailNorm} is already registered.`)
     }
 
+    const isAdmin = payload.is_admin ?? (payload.role === 'Centre Director')
     const created = await teacherRepo.create(scope(), {
       email: emailNorm,
       name: payload.name.trim() || emailNorm.split('@')[0],
       role: payload.role,
       room: payload.room || 'All Rooms',
       status: payload.status ?? 'active',
+      is_admin: isAdmin,
       notes: payload.notes?.trim() ?? '',
       invited_at: new Date().toISOString(),
       last_active_at: payload.status === 'active' ? new Date().toISOString() : undefined,
@@ -343,6 +353,29 @@ export const useAdminStore = defineStore('admin', () => {
     return topicsByKey.value.get(topicKeyOrPath) || topicsByPath.value.get(topicKeyOrPath)
   }
 
+  function getTeacherByEmail(email: string): TeacherAccess | undefined {
+    const norm = email.trim().toLowerCase()
+    return teachers.value.find(t => t.email.toLowerCase() === norm)
+  }
+
+  function isEmailAdmin(email: string): boolean {
+    const norm = email.trim().toLowerCase()
+    if (!norm) return false
+    if (norm === 'kapilpandey@hadfield.edu.au') return true
+    const teacher = getTeacherByEmail(norm)
+    if (!teacher) return false
+    return Boolean(teacher.is_admin || teacher.role === 'Centre Director')
+  }
+
+  function isEmailAuthorized(email: string): boolean {
+    const norm = email.trim().toLowerCase()
+    if (!norm) return false
+    if (norm === 'kapilpandey@hadfield.edu.au') return true
+    const teacher = getTeacherByEmail(norm)
+    if (!teacher) return false
+    return teacher.status === 'active' || teacher.status === 'invited'
+  }
+
   return {
     teachers,
     topicStatuses,
@@ -365,5 +398,9 @@ export const useAdminStore = defineStore('admin', () => {
     updateTopic,
     isTopicUnderDevelopment,
     getTopic,
+    getTeacherByEmail,
+    isEmailAdmin,
+    isEmailAuthorized,
   }
 })
+

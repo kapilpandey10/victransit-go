@@ -305,6 +305,7 @@ create table if not exists public.teacher_access (
   role text not null default 'Educator',
   room text not null default 'All Rooms',
   status text not null default 'active' check (status in ('active', 'invited', 'suspended')),
+  is_admin boolean not null default false,
   notes text default '',
   invited_at timestamptz default now(),
   last_active_at timestamptz default now(),
@@ -350,6 +351,31 @@ create policy "own rows" on public.topic_statuses
 drop trigger if exists topic_statuses_updated_at on public.topic_statuses;
 create trigger topic_statuses_updated_at
   before update on public.topic_statuses
+  for each row execute function public.set_updated_at();
+
+-- -------------------------------------------------------------------------
+-- Rooms (Dynamic room configurations managed by administration)
+-- -------------------------------------------------------------------------
+create table if not exists public.rooms (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users (id) on delete cascade,
+  name text not null,
+  description text default '',
+  sort_order int not null default 0,
+  is_active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists rooms_name_idx on public.rooms (name);
+alter table public.rooms enable row level security;
+drop policy if exists "own rows" on public.rooms;
+create policy "own rows" on public.rooms
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop trigger if exists rooms_updated_at on public.rooms;
+create trigger rooms_updated_at
+  before update on public.rooms
   for each row execute function public.set_updated_at();
 
 

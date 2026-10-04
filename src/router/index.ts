@@ -1,6 +1,19 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
 
 const routes: RouteRecordRaw[] = [
+  {
+    path: '/login',
+    name: 'login',
+    component: () => import('@/views/LoginView.vue'),
+    meta: { title: 'Sign In', public: true },
+  },
+  {
+    path: '/unauthorized',
+    name: 'unauthorized',
+    component: () => import('@/views/UnauthorizedView.vue'),
+    meta: { title: 'Access Restricted', public: true },
+  },
   {
     path: '/',
     name: 'dashboard',
@@ -65,7 +78,7 @@ const routes: RouteRecordRaw[] = [
     path: '/admin',
     name: 'admin',
     component: () => import('@/views/AdminDashboardView.vue'),
-    meta: { title: 'Admin dashboard', icon: '🛡️' },
+    meta: { title: 'Admin dashboard', icon: '🛡️', requiresAdmin: true },
   },
   {
     path: '/settings',
@@ -85,8 +98,43 @@ export const router = createRouter({
   scrollBehavior: () => ({ top: 0 }),
 })
 
+router.beforeEach(async (to, _from, next) => {
+  const auth = useAuthStore()
+  if (auth.loading) {
+    await auth.init()
+  }
+
+  const isPublic = to.meta.public === true
+  if (!isPublic && !auth.isAuthenticated) {
+    return next({ path: '/login', query: { redirect: to.fullPath } })
+  }
+
+  if (auth.isAuthenticated && !auth.isAuthorized && to.path !== '/unauthorized') {
+    return next('/unauthorized')
+  }
+
+  if (to.meta.requiresAdmin && !auth.isAdmin) {
+    return next('/unauthorized')
+  }
+
+  // If authenticated user visits login, redirect to dashboard
+  if (to.path === '/login' && auth.isAuthenticated && auth.isAuthorized) {
+    return next('/')
+  }
+
+  next()
+})
+
 export const NAV_ITEMS = routes
-  .filter(r => r.meta?.title && r.name !== 'project-workspace' && r.path !== '/:pathMatch(.*)*')
+  .filter(
+    r =>
+      r.meta?.title &&
+      r.name !== 'project-workspace' &&
+      r.name !== 'login' &&
+      r.name !== 'unauthorized' &&
+      r.name !== 'admin' &&
+      r.path !== '/:pathMatch(.*)*',
+  )
   .map(r => ({
     name: r.name as string,
     path: r.path,

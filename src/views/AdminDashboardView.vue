@@ -1,19 +1,21 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ROOMS } from '@/data/rooms'
+import { roomTitle, roomTeam } from '@/data/rooms'
 import { useAdminStore } from '@/stores/admin'
 import { useAuthStore } from '@/stores/auth'
+import { useRoomsStore } from '@/stores/rooms'
 import { useUiStore } from '@/stores/ui'
-import type { TeacherAccess, TeacherAccessStatus, TeacherRole, TopicModuleStatus, TopicStatus } from '@/types'
+import type { RoomRecord, TeacherAccess, TeacherAccessStatus, TeacherRole, TopicModuleStatus, TopicStatus } from '@/types'
 
 const admin = useAdminStore()
 const auth = useAuthStore()
+const roomsStore = useRoomsStore()
 const ui = useUiStore()
 
-const activeTab = ref<'teachers' | 'topics' | 'governance'>('teachers')
+const activeTab = ref<'teachers' | 'rooms' | 'topics' | 'governance'>('teachers')
 
 onMounted(async () => {
-  await admin.init()
+  await Promise.all([admin.init(), roomsStore.loadRooms()])
 })
 
 // ---------------------------------------------------------------------------
@@ -31,6 +33,8 @@ const ROLES: TeacherRole[] = [
   'Educator',
   'Relief Educator',
 ]
+
+const roomOptions = computed(() => ['All Rooms', ...roomsStore.roomNames])
 
 const filteredTeachers = computed(() => {
   return admin.teachers.filter(t => {
@@ -65,6 +69,7 @@ const teacherForm = reactive({
   role: 'Educator' as TeacherRole,
   room: 'All Rooms',
   status: 'active' as TeacherAccessStatus,
+  is_admin: false,
   notes: '',
 })
 
@@ -75,6 +80,7 @@ function openAddTeacherModal() {
   teacherForm.role = 'Educator'
   teacherForm.room = 'All Rooms'
   teacherForm.status = 'active'
+  teacherForm.is_admin = false
   teacherForm.notes = ''
   showTeacherModal.value = true
 }
@@ -86,6 +92,7 @@ function openEditTeacherModal(teacher: TeacherAccess) {
   teacherForm.role = teacher.role
   teacherForm.room = teacher.room
   teacherForm.status = teacher.status
+  teacherForm.is_admin = Boolean(teacher.is_admin || teacher.role === 'Centre Director')
   teacherForm.notes = teacher.notes || ''
   showTeacherModal.value = true
 }
@@ -104,6 +111,7 @@ async function handleSaveTeacher() {
         role: teacherForm.role,
         room: teacherForm.room,
         status: teacherForm.status,
+        is_admin: teacherForm.is_admin || teacherForm.role === 'Centre Director',
         notes: teacherForm.notes,
       })
       ui.showToast('Teacher access updated successfully.', 'success')
@@ -114,6 +122,7 @@ async function handleSaveTeacher() {
         role: teacherForm.role,
         room: teacherForm.room,
         status: teacherForm.status,
+        is_admin: teacherForm.is_admin || teacherForm.role === 'Centre Director',
         notes: teacherForm.notes,
       })
       ui.showToast(`Access granted for ${teacherForm.email}.`, 'success')
@@ -148,9 +157,76 @@ async function handleToggleStatus(teacher: TeacherAccess, newStatus: TeacherAcce
 }
 
 function copyInviteLink(email: string) {
-  const url = `${window.location.origin}/?email=${encodeURIComponent(email)}`
+  const url = `${window.location.origin}/login?email=${encodeURIComponent(email)}`
   navigator.clipboard.writeText(url)
-  ui.showToast(`Invitation access link copied for ${email}`, 'success')
+  ui.showToast(`Login link copied for ${email}`, 'success')
+}
+
+// ---------------------------------------------------------------------------
+// Dynamic Room Management State & Actions
+// ---------------------------------------------------------------------------
+const showRoomModal = ref(false)
+const editingRoomId = ref<string | null>(null)
+const roomFormSubmitting = ref(false)
+
+const roomForm = reactive({
+  name: '',
+  description: '',
+})
+
+function openAddRoomModal() {
+  editingRoomId.value = null
+  roomForm.name = ''
+  roomForm.description = ''
+  showRoomModal.value = true
+}
+
+function openEditRoomModal(room: RoomRecord) {
+  editingRoomId.value = room.id
+  roomForm.name = room.name
+  roomForm.description = room.description || ''
+  showRoomModal.value = true
+}
+
+async function handleSaveRoom() {
+  if (!roomForm.name.trim()) {
+    ui.showToast('Please enter a room name.', 'error')
+    return
+  }
+  roomFormSubmitting.value = true
+  try {
+    if (editingRoomId.value) {
+      await roomsStore.updateRoom(editingRoomId.value, {
+        name: roomForm.name,
+        description: roomForm.description,
+      })
+      ui.showToast(`Room updated to "${roomForm.name}".`, 'success')
+    } else {
+      await roomsStore.addRoom(roomForm.name, roomForm.description)
+      ui.showToast(`Room "${roomForm.name}" created.`, 'success')
+    }
+    showRoomModal.value = false
+  } catch (err) {
+    ui.showToast((err as Error).message, 'error')
+  } finally {
+    roomFormSubmitting.value = false
+  }
+}
+
+async function handleDeleteRoom(room: RoomRecord) {
+  if (roomsStore.rooms.length <= 1) {
+    ui.showToast('You must keep at least one room in the service.', 'error')
+    return
+  }
+  if (!confirm(`Are you sure you want to delete room "${room.name}"?`)) {
+    return
+  }
+  try {
+    await roomsStore.deleteRoom(room.id)
+    ui.showToast(`Room "${room.name}" deleted.`, 'success')
+  } catch (err) {
+    ui.showToast((err as Error).message, 'error')
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -192,9 +268,6 @@ async function handleSaveTopicNotes(topic: TopicModuleStatus) {
     savingNotes[topic.topic_key] = false
   }
 }
-
-// Room list with "All Rooms" prepended
-const roomOptions = computed(() => ['All Rooms', ...ROOMS])
 </script>
 
 <template>
@@ -219,19 +292,27 @@ const roomOptions = computed(() => ['All Rooms', ...ROOMS])
             Hadfield ELC — Admin Dashboard
           </h1>
           <p class="mt-1 text-sm text-slate-300 max-w-2xl leading-relaxed">
-            Logged in as <span class="text-white font-bold">{{ auth.displayName }}</span>. Authorize teacher emails, assign room educators, and set pedagogical modules to
+            Logged in as <span class="text-white font-bold">{{ auth.displayName }}</span>. Authorize teacher login emails, configure early learning rooms, and set pedagogical modules to
             <span class="text-amber-300 font-bold underline">Under Development</span> with live guidance notes.
           </p>
         </div>
 
-        <div class="flex items-center gap-3">
+        <div class="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            class="btn bg-brand-600 hover:bg-brand-500 text-white font-bold shadow-soft flex items-center gap-2"
+            class="btn bg-brand-600 hover:bg-brand-500 text-white font-bold shadow-soft flex items-center gap-1.5"
             @click="openAddTeacherModal"
           >
             <span>➕</span>
-            <span>Grant Teacher Access</span>
+            <span>Grant Teacher Email</span>
+          </button>
+          <button
+            type="button"
+            class="btn bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold flex items-center gap-1.5"
+            @click="openAddRoomModal"
+          >
+            <span>🏫</span>
+            <span>Add Room</span>
           </button>
         </div>
       </div>
@@ -239,15 +320,15 @@ const roomOptions = computed(() => ['All Rooms', ...ROOMS])
       <!-- Quick Metrics Grid -->
       <div class="mt-6 grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div class="rounded-2xl bg-white/5 border border-white/10 p-3 sm:p-4">
-          <p class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Total Teachers</p>
+          <p class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Authorized Teachers</p>
           <p class="mt-1 text-2xl font-black text-white">{{ admin.teachers.length }}</p>
-          <p class="text-xs text-slate-400">Authorized emails</p>
+          <p class="text-xs text-slate-400">Whitelisted emails</p>
         </div>
 
         <div class="rounded-2xl bg-white/5 border border-white/10 p-3 sm:p-4">
-          <p class="text-[11px] font-bold uppercase tracking-wider text-emerald-400">Active Staff</p>
-          <p class="mt-1 text-2xl font-black text-emerald-300">{{ admin.activeTeachers.length }}</p>
-          <p class="text-xs text-slate-400">Full platform access</p>
+          <p class="text-[11px] font-bold uppercase tracking-wider text-emerald-400">Learning Rooms</p>
+          <p class="mt-1 text-2xl font-black text-emerald-300">{{ roomsStore.rooms.length }}</p>
+          <p class="text-xs text-slate-400">Active rooms</p>
         </div>
 
         <div class="rounded-2xl bg-white/5 border border-white/10 p-3 sm:p-4">
@@ -265,7 +346,7 @@ const roomOptions = computed(() => ['All Rooms', ...ROOMS])
     </header>
 
     <!-- Navigation Tabs -->
-    <div class="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2">
+    <div class="flex flex-wrap items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2">
       <button
         type="button"
         class="flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm transition"
@@ -284,6 +365,20 @@ const roomOptions = computed(() => ['All Rooms', ...ROOMS])
         type="button"
         class="flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm transition"
         :class="
+          activeTab === 'rooms'
+            ? 'bg-brand-600 text-white shadow-sm'
+            : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+        "
+        @click="activeTab = 'rooms'"
+      >
+        <span>🏫</span>
+        <span>Rooms ({{ roomsStore.rooms.length }})</span>
+      </button>
+
+      <button
+        type="button"
+        class="flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm transition"
+        :class="
           activeTab === 'topics'
             ? 'bg-brand-600 text-white shadow-sm'
             : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
@@ -291,7 +386,7 @@ const roomOptions = computed(() => ['All Rooms', ...ROOMS])
         @click="activeTab = 'topics'"
       >
         <span>🚧</span>
-        <span>Module Development Status ({{ admin.topicStatuses.length }})</span>
+        <span>Module Status ({{ admin.topicStatuses.length }})</span>
         <span
           v-if="admin.underDevTopics.length > 0"
           class="rounded-full bg-amber-500 text-slate-950 px-2 py-0.5 text-[10px] font-extrabold"
@@ -350,7 +445,7 @@ const roomOptions = computed(() => ['All Rooms', ...ROOMS])
             @click="openAddTeacherModal"
           >
             <span>➕</span>
-            <span>Add Teacher</span>
+            <span>Grant Email</span>
           </button>
         </div>
       </div>
@@ -365,7 +460,7 @@ const roomOptions = computed(() => ['All Rooms', ...ROOMS])
                 <th class="py-3.5 px-4">Role</th>
                 <th class="py-3.5 px-4">Room Assignment</th>
                 <th class="py-3.5 px-4">Status</th>
-                <th class="py-3.5 px-4">Date Added</th>
+                <th class="py-3.5 px-4">Admin Privileges</th>
                 <th class="py-3.5 px-4 text-right">Actions</th>
               </tr>
             </thead>
@@ -381,7 +476,7 @@ const roomOptions = computed(() => ['All Rooms', ...ROOMS])
                     <div
                       class="grid h-10 w-10 shrink-0 place-items-center rounded-xl font-bold text-white shadow-soft"
                       :class="
-                        t.role === 'Centre Director'
+                        t.role === 'Centre Director' || t.is_admin
                           ? 'bg-rose-600'
                           : t.role === 'Educational Leader'
                           ? 'bg-brand-600'
@@ -393,15 +488,23 @@ const roomOptions = computed(() => ['All Rooms', ...ROOMS])
                       {{ t.name.charAt(0).toUpperCase() }}
                     </div>
                     <div class="min-w-0">
-                      <p class="font-bold text-slate-900 dark:text-slate-100 truncate">
-                        {{ t.name }}
-                      </p>
+                      <div class="flex items-center gap-1.5">
+                        <p class="font-bold text-slate-900 dark:text-slate-100 truncate">
+                          {{ t.name }}
+                        </p>
+                        <span
+                          v-if="t.is_admin || t.role === 'Centre Director'"
+                          class="rounded bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300 text-[9px] font-black uppercase px-1 py-0.2"
+                        >
+                          Admin
+                        </span>
+                      </div>
                       <div class="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
                         <span class="truncate">{{ t.email }}</span>
                         <button
                           type="button"
                           class="hover:text-brand-600 dark:hover:text-brand-400"
-                          title="Copy email"
+                          title="Copy login link"
                           @click="copyInviteLink(t.email)"
                         >
                           📋
@@ -464,15 +567,23 @@ const roomOptions = computed(() => ['All Rooms', ...ROOMS])
                   </div>
                 </td>
 
-                <!-- Date -->
-                <td class="py-3.5 px-4 text-xs text-slate-500 whitespace-nowrap">
-                  {{ new Date(t.created_at).toLocaleDateString('en-AU', { month: 'short', day: 'numeric', year: 'numeric' }) }}
+                <!-- Admin Status -->
+                <td class="py-3.5 px-4 whitespace-nowrap">
+                  <span
+                    v-if="t.is_admin || t.role === 'Centre Director'"
+                    class="inline-flex items-center gap-1 text-xs font-bold text-rose-600 dark:text-rose-400"
+                  >
+                    <span>🛡️</span>
+                    <span>Admin Access</span>
+                  </span>
+                  <span v-else class="text-xs text-slate-400">
+                    Educator Access
+                  </span>
                 </td>
 
                 <!-- Actions -->
                 <td class="py-3.5 px-4 text-right whitespace-nowrap">
                   <div class="flex items-center justify-end gap-1">
-                    <!-- Status quick toggles -->
                     <button
                       v-if="t.status !== 'active'"
                       type="button"
@@ -495,7 +606,7 @@ const roomOptions = computed(() => ['All Rooms', ...ROOMS])
                     <button
                       type="button"
                       class="btn-ghost p-1.5 text-xs"
-                      title="Copy access link"
+                      title="Copy login access link"
                       @click="copyInviteLink(t.email)"
                     >
                       🔗
@@ -536,7 +647,94 @@ const roomOptions = computed(() => ['All Rooms', ...ROOMS])
     </section>
 
     <!-- ===================================================================== -->
-    <!-- TAB 2: TOPIC & MODULE STATUS MANAGEMENT -->
+    <!-- TAB 2: DYNAMIC ROOM MANAGEMENT -->
+    <!-- ===================================================================== -->
+    <section v-if="activeTab === 'rooms'" class="space-y-4">
+      <div class="card p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border border-brand-200 dark:border-brand-900 bg-brand-50/40 dark:bg-brand-950/20">
+        <div>
+          <h2 class="font-display font-extrabold text-base text-slate-900 dark:text-slate-100">
+            Early Learning Rooms Management
+          </h2>
+          <p class="text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+            Create and edit room names. Any changes made here dynamically populate throughout the entire service: Weekly Wrap-Ups, Program Book, Learning Stories, and teacher assignments.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          class="btn-primary flex items-center gap-1.5 text-xs font-bold shrink-0 self-start sm:self-auto"
+          @click="openAddRoomModal"
+        >
+          <span>➕</span>
+          <span>Add New Room</span>
+        </button>
+      </div>
+
+      <!-- Rooms Grid -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div
+          v-for="room in roomsStore.rooms"
+          :key="room.id"
+          class="card p-5 space-y-3 border border-slate-200 dark:border-slate-800 hover:shadow-soft transition"
+        >
+          <div class="flex items-start justify-between gap-2">
+            <div class="flex items-center gap-3">
+              <div class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-100 text-brand-800 dark:bg-brand-950 dark:text-brand-300 text-lg font-bold">
+                🏫
+              </div>
+              <div>
+                <h3 class="font-display font-extrabold text-base text-slate-900 dark:text-slate-100">
+                  {{ room.name }}
+                </h3>
+                <p class="text-xs text-slate-500 dark:text-slate-400">
+                  {{ room.description || 'Active early learning environment' }}
+                </p>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-1">
+              <button
+                type="button"
+                class="btn-ghost p-1.5 text-xs"
+                title="Edit room"
+                @click="openEditRoomModal(room)"
+              >
+                ✏️
+              </button>
+              <button
+                type="button"
+                class="btn-ghost p-1.5 text-xs text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50"
+                title="Delete room"
+                @click="handleDeleteRoom(room)"
+              >
+                🗑️
+              </button>
+            </div>
+          </div>
+
+          <!-- Room Badges & Previews -->
+          <div class="rounded-xl bg-slate-50 dark:bg-slate-800/60 p-3 space-y-1.5 text-xs">
+            <div class="flex items-center justify-between">
+              <span class="text-slate-500 text-[11px]">Wrap-Up Signature:</span>
+              <span class="font-bold text-slate-700 dark:text-slate-200">{{ roomTeam(room.name) }}</span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-slate-500 text-[11px]">Newsletter Title:</span>
+              <span class="font-bold text-slate-700 dark:text-slate-200">{{ roomTitle(room.name) }}</span>
+            </div>
+            <div class="flex items-center justify-between pt-1 border-t border-slate-200/60 dark:border-slate-700/60">
+              <span class="text-slate-500 text-[11px]">Assigned Staff:</span>
+              <span class="rounded bg-brand-100 text-brand-800 dark:bg-brand-950 dark:text-brand-300 px-1.5 py-0.2 text-[10px] font-bold">
+                {{ admin.teachers.filter(t => t.room === room.name || t.room === 'All Rooms').length }} educators
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================================================================== -->
+    <!-- TAB 3: TOPIC & MODULE STATUS MANAGEMENT -->
     <!-- ===================================================================== -->
     <section v-if="activeTab === 'topics'" class="space-y-5">
       <!-- Leadership guidance banner -->
@@ -730,7 +928,7 @@ const roomOptions = computed(() => ['All Rooms', ...ROOMS])
     </section>
 
     <!-- ===================================================================== -->
-    <!-- TAB 3: NQF GOVERNANCE & CENTRE DETAILS -->
+    <!-- TAB 4: NQF GOVERNANCE & CENTRE DETAILS -->
     <!-- ===================================================================== -->
     <section v-if="activeTab === 'governance'" class="space-y-4">
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -770,7 +968,7 @@ const roomOptions = computed(() => ['All Rooms', ...ROOMS])
           </div>
           <div class="grid grid-cols-2 gap-2 text-xs">
             <div
-              v-for="room in ROOMS"
+              v-for="room in roomsStore.roomNames"
               :key="room"
               class="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 flex items-center justify-between"
             >
@@ -797,7 +995,7 @@ const roomOptions = computed(() => ['All Rooms', ...ROOMS])
           <div class="flex items-center gap-2">
             <span class="text-xl">{{ editingTeacherId ? '✏️' : '➕' }}</span>
             <h3 class="font-display font-black text-lg">
-              {{ editingTeacherId ? 'Edit Educator Access' : 'Grant New Teacher Access' }}
+              {{ editingTeacherId ? 'Edit Educator Access' : 'Grant New Teacher Login Email' }}
             </h3>
           </div>
           <button
@@ -823,7 +1021,7 @@ const roomOptions = computed(() => ['All Rooms', ...ROOMS])
               class="input w-full"
             />
             <p class="text-[11px] text-slate-500">
-              The teacher will use this email address to log in to Hadfield Inquiry Planner.
+              Only this email address will be authorized to log in to the Hadfield Inquiry Planner platform.
             </p>
           </div>
 
@@ -861,6 +1059,24 @@ const roomOptions = computed(() => ['All Rooms', ...ROOMS])
             </div>
           </div>
 
+          <!-- Admin Privileges Checkbox -->
+          <label class="flex items-center gap-3 p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 cursor-pointer">
+            <input
+              v-model="teacherForm.is_admin"
+              type="checkbox"
+              class="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+            />
+            <div class="space-y-0.5">
+              <p class="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                <span>🛡️</span>
+                <span>Grant Administrator Privileges</span>
+              </p>
+              <p class="text-[11px] text-slate-500 dark:text-slate-400 leading-tight">
+                Allows this educator to access the Admin Dashboard, authorize emails, and manage rooms.
+              </p>
+            </div>
+          </label>
+
           <!-- Initial Status -->
           <div class="space-y-1">
             <label class="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
@@ -868,7 +1084,7 @@ const roomOptions = computed(() => ['All Rooms', ...ROOMS])
             </label>
             <select v-model="teacherForm.status" class="select w-full">
               <option value="active">Active (Immediate platform access)</option>
-              <option value="invited">Invited (Send invitation email)</option>
+              <option value="invited">Invited (Awaiting first login)</option>
               <option value="suspended">Suspended (Access blocked)</option>
             </select>
           </div>
@@ -900,8 +1116,80 @@ const roomOptions = computed(() => ['All Rooms', ...ROOMS])
               class="btn-primary flex items-center gap-2"
               :disabled="teacherFormSubmitting"
             >
-              <span>{{ editingTeacherId ? 'Save Changes' : 'Grant Access' }}</span>
+              <span>{{ editingTeacherId ? 'Save Changes' : 'Grant Login Access' }}</span>
               <span v-if="teacherFormSubmitting">⏳</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- ===================================================================== -->
+    <!-- ADD / EDIT ROOM MODAL -->
+    <!-- ===================================================================== -->
+    <div
+      v-if="showRoomModal"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm"
+      @click.self="showRoomModal = false"
+    >
+      <div class="card max-w-md w-full p-6 space-y-5 bg-white dark:bg-slate-900 shadow-lift">
+        <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+          <div class="flex items-center gap-2">
+            <span class="text-xl">🏫</span>
+            <h3 class="font-display font-black text-lg">
+              {{ editingRoomId ? 'Edit Room' : 'Add Early Learning Room' }}
+            </h3>
+          </div>
+          <button
+            type="button"
+            class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+            @click="showRoomModal = false"
+          >
+            ✕
+          </button>
+        </div>
+
+        <form class="space-y-4" @submit.prevent="handleSaveRoom">
+          <div class="space-y-1">
+            <label class="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
+              Room Name *
+            </label>
+            <input
+              v-model="roomForm.name"
+              type="text"
+              required
+              placeholder="e.g. Sunflowers Room, Koalas Room"
+              class="input w-full"
+            />
+          </div>
+
+          <div class="space-y-1">
+            <label class="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
+              Description / Age Cohort
+            </label>
+            <textarea
+              v-model="roomForm.description"
+              rows="2"
+              placeholder="e.g. 3-year old kindergarten, infant nursery, toddler exploration."
+              class="textarea text-xs w-full"
+            />
+          </div>
+
+          <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-200 dark:border-slate-800">
+            <button
+              type="button"
+              class="btn-ghost"
+              @click="showRoomModal = false"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              class="btn-primary flex items-center gap-2"
+              :disabled="roomFormSubmitting"
+            >
+              <span>{{ editingRoomId ? 'Save Room' : 'Create Room' }}</span>
+              <span v-if="roomFormSubmitting">⏳</span>
             </button>
           </div>
         </form>

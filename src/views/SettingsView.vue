@@ -105,8 +105,11 @@ function clearLocalData() {
 
 <template>
   <div class="space-y-5">
-    <!-- Admin Shortcut Banner -->
-    <div class="rounded-2xl border border-brand-200 dark:border-brand-900 bg-brand-50/70 dark:bg-brand-950/40 p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
+    <!-- Admin Shortcut Banner (Admin Only) -->
+    <div
+      v-if="auth.isAdmin"
+      class="rounded-2xl border border-brand-200 dark:border-brand-900 bg-brand-50/70 dark:bg-brand-950/40 p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm"
+    >
       <div class="space-y-1">
         <p class="font-display font-extrabold text-sm sm:text-base text-brand-950 dark:text-brand-100 flex items-center gap-2">
           <span>🛡️</span>

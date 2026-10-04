@@ -193,6 +193,7 @@ export interface TeacherAccess extends Persisted {
   role: TeacherRole
   room: string
   status: TeacherAccessStatus
+  is_admin?: boolean
   notes?: string
   invited_at?: string
   last_active_at?: string
@@ -210,4 +211,14 @@ export interface TopicModuleStatus extends Persisted {
   target_release_date?: string
   affected_rooms?: string[]
 }
+
+export interface RoomRecord extends Persisted {
+  name: string
+  description?: string
+  sort_order?: number
+  is_active?: boolean
+}
+
+export type SessionStatus = 'loading' | 'authenticated' | 'unauthorized' | 'unauthenticated'
+
 

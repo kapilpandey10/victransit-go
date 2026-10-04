@@ -4,15 +4,11 @@ import type { User } from '@supabase/supabase-js'
 import { isSupabaseConfigured, trySupabase } from '@/services/supabase'
 import { DEMO_USER_ID } from '@/services/repo'
 import { readLocal, writeLocal, removeLocal } from '@/services/localStore'
+import { useAdminStore } from './admin'
 import type { Profile } from '@/types'
 
 const PROFILE_KEY = 'profile'
-
-const DEMO_USER = {
-  id: DEMO_USER_ID,
-  email: 'demo@hadfield.local',
-  user_metadata: { full_name: 'Demo Educator' },
-} as unknown as User
+const DEMO_EMAIL_KEY = 'hadfield:v1:demo_user_email'
 
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<User | null>(null)
@@ -21,8 +17,12 @@ export const useAuthStore = defineStore('auth', () => {
 
   const isAuthenticated = computed(() => Boolean(user.value))
   const userId = computed(() => user.value?.id ?? null)
+  const userEmail = computed(() => (user.value?.email || '').toLowerCase().trim())
+  const userRole = computed(() => profile.value?.role || 'Educator')
+
   /** Data scope id — falls back to the demo id so the UI stays usable. */
   const scopeId = computed(() => user.value?.id ?? DEMO_USER_ID)
+
   const displayName = computed(
     () =>
       profile.value?.full_name ||
@@ -30,24 +30,52 @@ export const useAuthStore = defineStore('auth', () => {
       user.value?.email?.split('@')[0] ||
       'Educator',
   )
+
   const demoMode = computed(() => !isSupabaseConfigured)
+
+  /** Check if the current user is an Admin / Centre Director */
+  const isAdmin = computed(() => {
+    const email = userEmail.value
+    if (!email) return false
+    if (email === 'kapilpandey@hadfield.edu.au' || email === 'admin@hadfield.local') return true
+    if (profile.value?.role === 'Centre Director' || profile.value?.role === 'Admin') return true
+
+    // Check with admin store if initialised
+    const admin = useAdminStore()
+    if (admin.isEmailAdmin(email)) return true
+    return false
+  })
+
+  /** Check if the user's email is whitelisted in teacher_access */
+  const isAuthorized = computed(() => {
+    if (!isAuthenticated.value) return false
+    const email = userEmail.value
+    if (email === 'kapilpandey@hadfield.edu.au' || email === 'admin@hadfield.local') return true
+
+    const admin = useAdminStore()
+    if (admin.isEmailAuthorized(email)) return true
+
+    // If profile role is Centre Director, grant authorization
+    if (profile.value?.role === 'Centre Director') return true
+
+    return false
+  })
 
   async function init() {
     loading.value = true
+    const admin = useAdminStore()
+    if (!admin.initialised) {
+      await admin.init()
+    }
+
     if (!isSupabaseConfigured) {
-      // Demo mode — sign in a synthetic local user so every screen works.
-      user.value = DEMO_USER
-      if (!profile.value) {
-        profile.value = {
-          id: DEMO_USER_ID,
-          full_name: 'Demo Educator',
-          centre_name: 'Hadfield Early Learning Centre',
-          room: 'Kinder Room',
-          role: 'Educator',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        }
-        writeLocal(PROFILE_KEY, profile.value)
+      // Demo Mode: Check if a user was previously logged in
+      const savedEmail = localStorage.getItem(DEMO_EMAIL_KEY) || 'kapilpandey@hadfield.edu.au'
+      if (savedEmail) {
+        setDemoSession(savedEmail)
+      } else {
+        user.value = null
+        profile.value = null
       }
       loading.value = false
       return
@@ -70,6 +98,34 @@ export const useAuthStore = defineStore('auth', () => {
 
     if (user.value) await loadProfile()
     loading.value = false
+  }
+
+  function setDemoSession(email: string) {
+    const admin = useAdminStore()
+    const norm = email.trim().toLowerCase()
+    const teacher = admin.getTeacherByEmail(norm)
+
+    const name = teacher?.name || (norm === 'kapilpandey@hadfield.edu.au' ? 'Kapil Pandey' : norm.split('@')[0])
+    const role = teacher?.role || (norm === 'kapilpandey@hadfield.edu.au' ? 'Centre Director' : 'Educator')
+    const room = teacher?.room || 'All Rooms'
+
+    user.value = {
+      id: teacher?.id || DEMO_USER_ID,
+      email: norm,
+      user_metadata: { full_name: name },
+    } as unknown as User
+
+    profile.value = {
+      id: teacher?.id || DEMO_USER_ID,
+      full_name: name,
+      centre_name: 'Hadfield Early Learning Centre',
+      room,
+      role,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }
+    writeLocal(PROFILE_KEY, profile.value)
+    localStorage.setItem(DEMO_EMAIL_KEY, norm)
   }
 
   async function loadProfile() {
@@ -104,21 +160,89 @@ export const useAuthStore = defineStore('auth', () => {
     profile.value = data as Profile
   }
 
-  async function signUp(email: string, password: string, fullName: string) {
+  async function signIn(email: string, password?: string) {
+    const admin = useAdminStore()
+    if (!admin.initialised) await admin.init()
+
+    const norm = email.trim().toLowerCase()
+    if (!norm) throw new Error('Please enter your email address.')
+
+    // Whitelist check
+    if (!admin.isEmailAuthorized(norm) && norm !== 'kapilpandey@hadfield.edu.au') {
+      throw new Error(
+        `Access Pending: The email "${norm}" has not been authorized by the Centre Director. Please contact Hadfield ELC leadership to grant access.`,
+      )
+    }
+
+    if (!isSupabaseConfigured) {
+      // Demo mode login
+      setDemoSession(norm)
+      return
+    }
+
     const sb = trySupabase()
-    if (!sb) throw new Error('Supabase is not configured.')
-    const { error } = await sb.auth.signUp({
-      email,
-      password,
-      options: { data: { full_name: fullName } },
+    if (!sb) throw new Error('Supabase client is not available.')
+
+    if (!password) {
+      throw new Error('Please enter your password.')
+    }
+
+    const { error } = await sb.auth.signInWithPassword({ email: norm, password })
+    if (error) throw new Error(error.message)
+    await loadProfile()
+  }
+
+  async function signInWithOtp(email: string) {
+    const admin = useAdminStore()
+    if (!admin.initialised) await admin.init()
+
+    const norm = email.trim().toLowerCase()
+    if (!norm) throw new Error('Please enter your email address.')
+
+    if (!admin.isEmailAuthorized(norm) && norm !== 'kapilpandey@hadfield.edu.au') {
+      throw new Error(
+        `Access Pending: The email "${norm}" has not been authorized by the Centre Director. Please contact Hadfield ELC leadership.`,
+      )
+    }
+
+    if (!isSupabaseConfigured) {
+      setDemoSession(norm)
+      return
+    }
+
+    const sb = trySupabase()
+    if (!sb) throw new Error('Supabase client is not available.')
+
+    const { error } = await sb.auth.signInWithOtp({
+      email: norm,
+      options: { emailRedirectTo: `${window.location.origin}/dashboard` },
     })
     if (error) throw new Error(error.message)
   }
 
-  async function signIn(email: string, password: string) {
+  async function signUp(email: string, password: string, fullName: string) {
+    const admin = useAdminStore()
+    if (!admin.initialised) await admin.init()
+
+    const norm = email.trim().toLowerCase()
+    if (!admin.isEmailAuthorized(norm) && norm !== 'kapilpandey@hadfield.edu.au') {
+      throw new Error(
+        `Registration Restricted: "${norm}" is not on the authorized educator roster. The Centre Director must grant access first.`,
+      )
+    }
+
+    if (!isSupabaseConfigured) {
+      setDemoSession(norm)
+      return
+    }
+
     const sb = trySupabase()
-    if (!sb) throw new Error('Supabase is not configured.')
-    const { error } = await sb.auth.signInWithPassword({ email, password })
+    if (!sb) throw new Error('Supabase client is not available.')
+    const { error } = await sb.auth.signUp({
+      email: norm,
+      password,
+      options: { data: { full_name: fullName } },
+    })
     if (error) throw new Error(error.message)
   }
 
@@ -135,18 +259,17 @@ export const useAuthStore = defineStore('auth', () => {
   async function signOut() {
     const sb = trySupabase()
     if (sb) await sb.auth.signOut()
-    if (isSupabaseConfigured) {
-      user.value = null
-      profile.value = null
-    } else {
-      // Demo mode has no real session to end.
-      user.value = DEMO_USER
-    }
+    user.value = null
+    profile.value = null
+    removeLocal(PROFILE_KEY)
+    localStorage.removeItem(DEMO_EMAIL_KEY)
   }
 
   function resetDemoData() {
     removeLocal(PROFILE_KEY)
+    localStorage.removeItem(DEMO_EMAIL_KEY)
     profile.value = null
+    user.value = null
     void init()
   }
 
@@ -155,7 +278,11 @@ export const useAuthStore = defineStore('auth', () => {
     profile,
     loading,
     isAuthenticated,
+    isAuthorized,
+    isAdmin,
     userId,
+    userEmail,
+    userRole,
     scopeId,
     displayName,
     demoMode,
@@ -164,8 +291,10 @@ export const useAuthStore = defineStore('auth', () => {
     saveProfile,
     signUp,
     signIn,
+    signInWithOtp,
     signInWithGoogle,
     signOut,
     resetDemoData,
+    setDemoSession,
   }
 })

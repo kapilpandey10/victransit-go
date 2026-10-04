@@ -10,6 +10,7 @@ import { useAiTask } from '@/composables/useAiTask'
 import { useAuthStore } from '@/stores/auth'
 import { useContentStore } from '@/stores/content'
 import { useProjectStore } from '@/stores/project'
+import { useRoomsStore } from '@/stores/rooms'
 import { useUiStore } from '@/stores/ui'
 import { exportProgramBookPdf, formatStoryDate, type ProgramBookPrintOptions } from '@/utils/pdfExport'
 import { printElement } from '@/utils/printElement'
@@ -19,7 +20,10 @@ const ai = useAiTask()
 const auth = useAuthStore()
 const content = useContentStore()
 const projects = useProjectStore()
+const roomsStore = useRoomsStore()
 const ui = useUiStore()
+
+const roomList = computed(() => roomsStore.roomNames)
 
 // Main view mode: Experiences vs Analysis
 const viewTab = ref<'experiences' | 'analysis'>('experiences')
@@ -62,7 +66,7 @@ const expPhotoContainerClass = computed(() => {
 
 const expDraft = reactive({
   title: '',
-  room: ROOMS[0] as string,
+  room: (roomsStore.roomNames[0] || 'Blossoms') as string,
   experience_type: 'group' as 'group' | 'inquiry' | 'intentional' | 'spontaneous',
   date: new Date().toISOString().slice(0, 10),
   educator_name: '',
@@ -94,7 +98,7 @@ const expInlineOutcomeText = computed(() => {
 function resetExpDraft() {
   Object.assign(expDraft, {
     title: '',
-    room: ROOMS[0],
+    room: roomsStore.roomNames[0] || 'Blossoms',
     experience_type: 'group',
     date: new Date().toISOString().slice(0, 10),
     educator_name: auth.displayName || 'Educator',
@@ -462,6 +466,7 @@ async function removeAnalysis(id: string) {
 }
 
 onMounted(() => {
+  void roomsStore.loadRooms()
   void projects.loadActivities()
   void content.loadAnalyses()
 })
@@ -600,7 +605,7 @@ onMounted(() => {
             <div>
               <label class="field-label" for="exp-room">Room *</label>
               <select id="exp-room" v-model="expDraft.room" class="input font-bold">
-                <option v-for="r in ROOMS" :key="r" :value="r">{{ r }}</option>
+                <option v-for="r in roomList" :key="r" :value="r">{{ r }}</option>
               </select>
             </div>
             <div>

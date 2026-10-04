@@ -29,6 +29,8 @@ const TOOLS = [
   { path: '/admin', icon: '🛡️', title: 'Admin dashboard', text: 'Teacher email access & module development status.' },
 ]
 
+const availableTools = computed(() => TOOLS.filter(t => t.path !== '/admin' || auth.isAdmin))
+
 const TIPS = [
   'Follow the child: start from a question you have documented, not a theme calendar.',
   'Name the disposition you saw — curiosity, persistence, cooperation — not just the activity.',
@@ -122,7 +124,7 @@ onMounted(() => {
         <h3 class="mb-3 font-display text-lg font-extrabold">Planning tools</h3>
         <div class="grid gap-3 sm:grid-cols-2">
           <button
-            v-for="tool in TOOLS"
+            v-for="tool in availableTools"
             :key="tool.path"
             class="card flex items-start gap-3 text-left transition hover:-translate-y-0.5 hover:shadow-lift relative"
             @click="router.push(tool.path)"
