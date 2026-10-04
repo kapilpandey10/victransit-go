@@ -79,72 +79,97 @@ export function createRepo<T extends BaseRecord>(table: string, opts: RepoOption
     async list(userId: string, options: QueryOptions = {}): Promise<T[]> {
       const activeCentre = getActiveCentreName().toLowerCase().trim()
       const sb = trySupabase()
-      if (sb) {
-        let q = sb.from(table).select('*')
-        if (!isShared) {
-          q = q.eq('user_id', userId)
-        }
-        if (options.where) {
-          for (const [k, v] of Object.entries(options.where)) q = q.eq(k, v)
-        }
-        q = q.order(options.orderBy ?? 'created_at', {
-          ascending: options.ascending ?? false,
-        })
-        if (options.limit) q = q.limit(options.limit)
-        const { data, error } = await q
-        if (error) throw new Error(`${table}: ${error.message}`)
-        let result = (data ?? []) as T[]
+      const isUuid =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)
+
+      const getLocalRows = () => {
+        let rows = isShared
+          ? localAll<T>(table)
+          : localAll<T>(table).filter(r => r.user_id === userId)
+
         if (isCentreShared) {
-          result = result.filter(r => {
+          rows = rows.filter(r => {
             const rowCentre = String(col(r, 'centre_name') || 'Hadfield Early Learning Centre').toLowerCase().trim()
             return rowCentre === activeCentre
           })
         }
-        return result
-      }
 
-      let rows = isShared
-        ? localAll<T>(table)
-        : localAll<T>(table).filter(r => r.user_id === userId)
-
-      if (isCentreShared) {
-        rows = rows.filter(r => {
-          const rowCentre = String(col(r, 'centre_name') || 'Hadfield Early Learning Centre').toLowerCase().trim()
-          return rowCentre === activeCentre
+        if (options.where) {
+          const where = options.where
+          rows = rows.filter(r =>
+            Object.entries(where).every(([k, v]) => col(r, k) === v),
+          )
+        }
+        const key = options.orderBy ?? 'created_at'
+        rows.sort((a, b) => {
+          const av = String(col(a, key) ?? '')
+          const bv = String(col(b, key) ?? '')
+          return options.ascending ? av.localeCompare(bv) : bv.localeCompare(av)
         })
+        return options.limit ? rows.slice(0, options.limit) : rows
       }
 
-      if (options.where) {
-        const where = options.where
-        rows = rows.filter(r =>
-          Object.entries(where).every(([k, v]) => col(r, k) === v),
-        )
+      if (sb && (isUuid || isGlobal)) {
+        try {
+          let q = sb.from(table).select('*')
+          if (!isShared) {
+            q = q.eq('user_id', userId)
+          }
+          if (options.where) {
+            for (const [k, v] of Object.entries(options.where)) q = q.eq(k, v)
+          }
+          q = q.order(options.orderBy ?? 'created_at', {
+            ascending: options.ascending ?? false,
+          })
+          if (options.limit) q = q.limit(options.limit)
+          const { data, error } = await q
+          if (!error && data) {
+            let result = data as T[]
+            if (isCentreShared) {
+              result = result.filter(r => {
+                const rowCentre = String(col(r, 'centre_name') || 'Hadfield Early Learning Centre').toLowerCase().trim()
+                return rowCentre === activeCentre
+              })
+            }
+            // Merge with local rows so offline or local-only drafts are never dropped
+            const localRows = getLocalRows()
+            const map = new Map<string, T>()
+            for (const r of result) map.set(r.id, r)
+            for (const r of localRows) {
+              if (!map.has(r.id)) map.set(r.id, r)
+            }
+            return Array.from(map.values())
+          }
+        } catch {
+          // Fall through to local storage if cloud fails
+        }
       }
-      const key = options.orderBy ?? 'created_at'
-      rows.sort((a, b) => {
-        const av = String(col(a, key) ?? '')
-        const bv = String(col(b, key) ?? '')
-        return options.ascending ? av.localeCompare(bv) : bv.localeCompare(av)
-      })
-      return options.limit ? rows.slice(0, options.limit) : rows
+
+      return getLocalRows()
     },
 
     async get(userId: string, id: string): Promise<T | null> {
       const activeCentre = getActiveCentreName().toLowerCase().trim()
       const sb = trySupabase()
-      if (sb) {
-        let q = sb.from(table).select('*').eq('id', id)
-        if (!isShared) {
-          q = q.eq('user_id', userId)
+      const isUuid =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)
+      if (sb && (isUuid || isGlobal)) {
+        try {
+          let q = sb.from(table).select('*').eq('id', id)
+          if (!isShared) {
+            q = q.eq('user_id', userId)
+          }
+          const { data, error } = await q.maybeSingle()
+          if (!error && data) {
+            if (isCentreShared) {
+              const rowCentre = String(col(data, 'centre_name') || 'Hadfield Early Learning Centre').toLowerCase().trim()
+              if (rowCentre !== activeCentre) return null
+            }
+            return data as T
+          }
+        } catch {
+          // Fall through to local storage
         }
-        const { data, error } = await q.maybeSingle()
-        if (error) throw new Error(`${table}: ${error.message}`)
-        if (!data) return null
-        if (isCentreShared) {
-          const rowCentre = String(col(data, 'centre_name') || 'Hadfield Early Learning Centre').toLowerCase().trim()
-          if (rowCentre !== activeCentre) return null
-        }
-        return (data as T)
       }
       const found =
         localAll<T>(table).find(r => r.id === id && (isShared || r.user_id === userId)) ??
@@ -164,9 +189,30 @@ export function createRepo<T extends BaseRecord>(table: string, opts: RepoOption
       const sb = trySupabase()
       const isUuid =
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)
-
       const activeCentre = getActiveCentreName()
-      if (sb) {
+
+      // Local fallback closure that always guarantees data is safely preserved
+      const saveLocally = () => {
+        const row = {
+          centre_name: (payload as Record<string, unknown>).centre_name || activeCentre,
+          ...payload,
+          id: providedId ?? localId(),
+          user_id: userId,
+          created_at: nowIso(),
+          updated_at: nowIso(),
+        } as unknown as T
+        const rows = localAll<T>(table)
+        const existingIdx = rows.findIndex(r => r.id === row.id)
+        if (existingIdx >= 0) {
+          rows[existingIdx] = row
+        } else {
+          rows.push(row)
+        }
+        localSave(table, rows)
+        return row
+      }
+
+      if (sb && (isUuid || isGlobal)) {
         const insertRow: Record<string, unknown> = {
           ...(payload as Record<string, unknown>),
         }
@@ -188,64 +234,104 @@ export function createRepo<T extends BaseRecord>(table: string, opts: RepoOption
             .select('*')
             .single()
           if (error) throw error
-          return data as T
+          const created = data as T
+          // Mirror to local cache
+          const rows = localAll<T>(table)
+          const idx = rows.findIndex(r => r.id === created.id)
+          if (idx >= 0) rows[idx] = created
+          else rows.push(created)
+          localSave(table, rows)
+          return created
         } catch (err: unknown) {
           const msg = (err as Error).message || ''
           if (msg.includes('centre_name')) {
-            const fallbackRow = { ...insertRow }
-            delete fallbackRow.centre_name
-            const { data, error } = await sb
-              .from(table)
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              .insert(fallbackRow as never)
-              .select('*')
-              .single()
-            if (error) throw new Error(`${table}: ${error.message}`)
-            return { ...data, centre_name: activeCentre } as T
+            try {
+              const fallbackRow = { ...insertRow }
+              delete fallbackRow.centre_name
+              const { data, error } = await sb
+                .from(table)
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                .insert(fallbackRow as never)
+                .select('*')
+                .single()
+              if (!error && data) {
+                const created = { ...data, centre_name: activeCentre } as T
+                const rows = localAll<T>(table)
+                const idx = rows.findIndex(r => r.id === created.id)
+                if (idx >= 0) rows[idx] = created
+                else rows.push(created)
+                localSave(table, rows)
+                return created
+              }
+            } catch {
+              // fallback locally below
+            }
           }
-          throw new Error(`${table}: ${msg}`)
+          console.warn(`[repo:${table}] Cloud create failed, safely falling back to device storage`, err)
+          return saveLocally()
         }
       }
 
-      const row = {
-        centre_name: (payload as Record<string, unknown>).centre_name || activeCentre,
-        ...payload,
-        id: providedId ?? localId(),
-        user_id: userId,
-        created_at: nowIso(),
-        updated_at: nowIso(),
-      } as unknown as T
-      const rows = localAll<T>(table)
-      rows.push(row)
-      localSave(table, rows)
-      return row
+      return saveLocally()
     },
 
     async update(userId: string, id: string, patch: Partial<T>): Promise<T> {
+      const activeCentre = getActiveCentreName()
       const sb = trySupabase()
-      if (sb) {
-        let q = sb
-          .from(table)
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          .update({ ...(patch as Record<string, unknown>), updated_at: nowIso() } as never)
-          .eq('id', id)
+      const isUuid =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)
 
-        if (!isShared) {
-          q = q.eq('user_id', userId)
+      const updateLocally = () => {
+        const rows = localAll<T>(table)
+        const idx = rows.findIndex(r => r.id === id && (isShared || r.user_id === userId))
+        if (idx === -1) {
+          const fallbackRow = {
+            id,
+            centre_name: activeCentre,
+            user_id: userId,
+            created_at: nowIso(),
+            ...patch,
+            updated_at: nowIso(),
+          } as unknown as T
+          rows.push(fallbackRow)
+          localSave(table, rows)
+          return fallbackRow
         }
-
-        const { data, error } = await q.select('*').single()
-        if (error) throw new Error(`${table}: ${error.message}`)
-        return data as T
+        const next = { ...rows[idx], ...patch, updated_at: nowIso() } as T
+        rows[idx] = next
+        localSave(table, rows)
+        return next
       }
 
-      const rows = localAll<T>(table)
-      const idx = rows.findIndex(r => r.id === id && (isShared || r.user_id === userId))
-      if (idx === -1) throw new Error(`${table}: record ${id} not found`)
-      const next = { ...rows[idx], ...patch, updated_at: nowIso() } as T
-      rows[idx] = next
-      localSave(table, rows)
-      return next
+      if (sb && (isUuid || isGlobal)) {
+        try {
+          let q = sb
+            .from(table)
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            .update({ ...(patch as Record<string, unknown>), updated_at: nowIso() } as never)
+            .eq('id', id)
+
+          if (!isShared) {
+            q = q.eq('user_id', userId)
+          }
+
+          const { data, error } = await q.select('*').single()
+          if (!error && data) {
+            const updated = data as T
+            const rows = localAll<T>(table)
+            const idx = rows.findIndex(r => r.id === id)
+            if (idx >= 0) rows[idx] = updated
+            else rows.push(updated)
+            localSave(table, rows)
+            return updated
+          }
+        } catch (err) {
+          console.warn(`[repo:${table}] Cloud update failed, safely updating locally`, err)
+          return updateLocally()
+        }
+      }
+
+      return updateLocally()
     },
 
     async remove(userId: string, id: string, isAdmin = false): Promise<void> {

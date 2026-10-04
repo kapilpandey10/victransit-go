@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import UnderDevelopmentBanner from '@/components/UnderDevelopmentBanner.vue'
 import { PROMPTS } from '@/data/prompts'
 import { ROOMS, roomTitle } from '@/data/rooms'
@@ -58,9 +58,11 @@ const copied = ref(false)
 
 const recordId = ref<string | null>(null)
 const savedLabel = ref('Not saved yet')
+const lastSavedTime = ref('')
 let saving = false
 let dirty = false
 let saveTimer: number | undefined
+let isLoadingContext = false
 
 const filledDays = computed(() =>
   DAY_KEYS.filter(k => notes[k].trim()).length,
@@ -165,6 +167,10 @@ function defaultDay() {
 }
 
 // --- persistence (draft = room + week) --------------------------------------
+function getDraftKey(roomName: string, weekKey: string) {
+  return `hadfield:v1:wrapup_draft:${roomName}:${weekKey}`
+}
+
 function snapshot() {
   return {
     room: room.value,
@@ -178,22 +184,54 @@ function snapshot() {
   }
 }
 
-async function saveNow() {
+async function saveNow(isManual = false) {
   if (saving) return
   saving = true
   dirty = false
+  savedLabel.value = 'Saving…'
+
+  const currentSnapshot = snapshot()
+  const now = new Date()
+  const timeStr = now.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' })
+
+  // 1. Immediately mirror to persistent localStorage draft key (never lost even on crash/refresh)
   try {
-    const saved = await content.saveWrapUp(snapshot(), recordId.value ?? undefined)
+    localStorage.setItem(
+      getDraftKey(room.value, week.value.weekKey),
+      JSON.stringify({
+        ...currentSnapshot,
+        id: recordId.value || undefined,
+        updated_at: now.toISOString(),
+      }),
+    )
+  } catch (err) {
+    console.warn('Local draft storage warning:', err)
+  }
+
+  // 2. Save to content store / repository
+  try {
+    const saved = await content.saveWrapUp(currentSnapshot, recordId.value ?? undefined)
     recordId.value = saved.id
-    savedLabel.value = `Saved ${new Date().toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' })}`
+    savedLabel.value = `Saved ${timeStr}`
+    lastSavedTime.value = timeStr
+    if (isManual) {
+      const dayName = week.value.days.find(d => d.key === activeDay.value)?.label || 'Wrap-up'
+      ui.showToast(`✅ ${dayName} notes saved successfully!`, 'success')
+    }
   } catch (e) {
-    savedLabel.value = `Save failed: ${(e as Error).message}`
+    console.warn('Repository save notice:', e)
+    savedLabel.value = `Saved on device ${timeStr}`
+    lastSavedTime.value = timeStr
+    if (isManual) {
+      ui.showToast(`✅ Notes saved to device backup (${timeStr})`, 'success')
+    }
   } finally {
     saving = false
   }
 }
 
 function scheduleSave() {
+  if (isLoadingContext) return
   dirty = true
   savedLabel.value = 'Saving…'
   window.clearTimeout(saveTimer)
@@ -208,41 +246,97 @@ function resetDraft() {
   result.value = ''
   recordId.value = null
   savedLabel.value = 'Not saved yet'
+  lastSavedTime.value = ''
 }
 
 /** Load the draft for room + week, flushing any pending edits first. */
 async function loadContext() {
   if (dirty) await saveNow()
-  await content.loadWrapUps()
-  const found = content.findWrapUp(room.value, week.value.weekKey)
-  resetDraft()
-  if (found) {
-    recordId.value = found.id
-    for (const k of DAY_KEYS) notes[k] = found.days?.[k] ?? ''
-    reminders.value = found.reminders ?? ''
-    lostFound.value = found.lost_found ?? ''
-    message.value = found.extra_message ?? ''
-    result.value = found.result ?? ''
-    savedLabel.value = found.status === 'generated' ? 'Generated copy saved' : 'Draft loaded'
+  isLoadingContext = true
+  try {
+    await content.loadWrapUps()
+    const found = content.findWrapUp(room.value, week.value.weekKey)
+
+    // Check device backup
+    let localDraft: Partial<WeeklyWrapUp> | null = null
+    try {
+      const raw = localStorage.getItem(getDraftKey(room.value, week.value.weekKey))
+      if (raw) localDraft = JSON.parse(raw)
+    } catch {}
+
+    resetDraft()
+
+    // Determine best record to load: prioritize whichever has notes/results
+    const recordToLoad = found || localDraft
+    if (recordToLoad) {
+      if (found) recordId.value = found.id
+      else if (localDraft?.id) recordId.value = localDraft.id
+
+      for (const k of DAY_KEYS) notes[k] = recordToLoad.days?.[k] ?? ''
+      reminders.value = recordToLoad.reminders ?? ''
+      lostFound.value = recordToLoad.lost_found ?? ''
+      message.value = recordToLoad.extra_message ?? ''
+      result.value = recordToLoad.result ?? ''
+
+      const timeStr = recordToLoad.updated_at
+        ? new Date(recordToLoad.updated_at).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' })
+        : ''
+      if (timeStr) lastSavedTime.value = timeStr
+
+      savedLabel.value = recordToLoad.status === 'generated'
+        ? 'Generated copy saved'
+        : (timeStr ? `Saved ${timeStr}` : 'Draft loaded')
+    }
+  } finally {
+    isLoadingContext = false
   }
   defaultDay()
   localStorage.setItem('hadfield:v1:last-wrapup-room', room.value)
 }
 
+function switchDay(key: DayKey) {
+  if (dirty) void saveNow(false)
+  activeDay.value = key
+}
+
+function onBeforeUnload() {
+  if (dirty) {
+    try {
+      localStorage.setItem(
+        getDraftKey(room.value, week.value.weekKey),
+        JSON.stringify({
+          ...snapshot(),
+          id: recordId.value || undefined,
+          updated_at: new Date().toISOString(),
+        }),
+      )
+    } catch {}
+  }
+}
+
 watch(room, () => void loadContext())
 watch(anchor, () => void loadContext())
 
-// Any edit → debounced autosave.
+// Any edit → debounced autosave (ignored while loading context).
 watch(
   [() => ({ ...notes }), reminders, lostFound, message, result],
-  () => scheduleSave(),
+  () => {
+    if (isLoadingContext) return
+    scheduleSave()
+  },
   { deep: true },
 )
 
 onMounted(async () => {
+  window.addEventListener('beforeunload', onBeforeUnload)
   await roomsStore.loadRooms()
   defaultDay()
   await loadContext()
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('beforeunload', onBeforeUnload)
+  if (dirty) void saveNow(false)
 })
 
 // --- navigation -------------------------------------------------------------
@@ -390,7 +484,23 @@ async function deleteDraft(id: string) {
         >
           {{ c.label }} {{ c.iso.slice(8) }} · Closed
         </span>
-        <span class="ml-auto text-[11px] text-slate-400">{{ savedLabel }}</span>
+        <div class="ml-auto flex items-center gap-2">
+          <span
+            class="text-xs font-bold px-2.5 py-1 rounded-full transition"
+            :class="lastSavedTime ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800' : 'text-slate-400'"
+          >
+            {{ savedLabel }}
+          </span>
+          <button
+            type="button"
+            class="btn-secondary !py-1 !px-3 text-xs font-bold inline-flex items-center gap-1.5"
+            :disabled="saving"
+            title="Save draft immediately"
+            @click="saveNow(true)"
+          >
+            <span>💾 Save Draft</span>
+          </button>
+        </div>
       </div>
     </header>
 
@@ -414,7 +524,7 @@ async function deleteDraft(id: string) {
               ? 'bg-white text-brand-800 shadow-soft dark:bg-slate-900 dark:text-brand-200'
               : 'text-slate-500'
           "
-          @click="activeDay = d.key"
+          @click="switchDay(d.key)"
         >
           {{ d.short }} {{ d.date.getDate() }}
           <span v-if="notes[d.key].trim()" class="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 align-middle" />
@@ -428,9 +538,15 @@ async function deleteDraft(id: string) {
       </nav>
 
       <div>
-        <label class="field-label" :for="`wu-${activeDay}`">
-          {{ week.days.find(d => d.key === activeDay)?.label }} notes
-        </label>
+        <div class="flex items-center justify-between mb-1.5">
+          <label class="field-label !mb-0" :for="`wu-${activeDay}`">
+            {{ week.days.find(d => d.key === activeDay)?.label }} notes
+          </label>
+          <span v-if="notes[activeDay].trim()" class="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+            <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+            {{ notes[activeDay].trim().split(/\s+/).length }} words
+          </span>
+        </div>
         <textarea
           :id="`wu-${activeDay}`"
           v-model="notes[activeDay]"
@@ -442,6 +558,36 @@ async function deleteDraft(id: string) {
           Write like you're telling families at the gate. One thought per line is
           plenty — the AI expands it.
         </p>
+
+        <!-- Dedicated Save Action & Status Bar -->
+        <div class="mt-3 flex flex-wrap items-center justify-between gap-3 pt-2.5 border-t border-slate-100 dark:border-slate-800">
+          <div class="flex items-center gap-2.5">
+            <button
+              type="button"
+              class="btn-primary !py-2 !px-4 text-xs font-bold inline-flex items-center gap-1.5 shadow-sm"
+              :disabled="saving"
+              @click="saveNow(true)"
+            >
+              <span>💾 Save {{ week.days.find(d => d.key === activeDay)?.label }} Notes</span>
+            </button>
+            <span
+              v-if="lastSavedTime"
+              class="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 px-3 py-1 rounded-full"
+            >
+              ✓ Saved at {{ lastSavedTime }}
+            </span>
+            <span v-else-if="saving" class="text-xs text-brand-600 font-bold animate-pulse">
+              Saving…
+            </span>
+            <span v-else-if="dirty" class="text-xs text-amber-600 dark:text-amber-400 font-semibold">
+              ● Unsaved changes (autosaving…)
+            </span>
+          </div>
+
+          <div class="text-[11px] text-slate-400">
+            Notes auto-save as you type and back up locally to your device.
+          </div>
+        </div>
       </div>
     </section>
 
