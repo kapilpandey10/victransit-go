@@ -12,10 +12,14 @@ const DEMO_EMAIL_KEY = 'hadfield:v1:demo_user_email'
 export const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000 // 7 days in milliseconds (604,800,000 ms)
 export const LAST_ACTIVE_KEY = 'hadfield:v1:last_active_at'
 export const SESSION_EMAIL_KEY = 'hadfield:v1:session_email'
+export const CACHED_USER_KEY = 'hadfield:v1:cached_user'
 export const ADMIN_EMAIL = 'info@pandeykapil.com.np'
 
+let authListenerAttached = false
+let initPromise: Promise<void> | null = null
+
 export const useAuthStore = defineStore('auth', () => {
-  const user = ref<User | null>(null)
+  const user = ref<User | null>(readLocal<User | null>(CACHED_USER_KEY, null))
   const profile = ref<Profile | null>(readLocal<Profile | null>(PROFILE_KEY, null))
   const loading = ref(true)
 
@@ -126,8 +130,7 @@ export const useAuthStore = defineStore('auth', () => {
     window.addEventListener('touchstart', onUserActivity, { passive: true })
   }
 
-  async function init() {
-    loading.value = true
+  async function _doInit() {
     try {
       const admin = useAdminStore()
       if (!admin.initialised) {
@@ -142,7 +145,8 @@ export const useAuthStore = defineStore('auth', () => {
       }
 
       const savedSessionEmail =
-        (typeof window !== 'undefined' && (localStorage.getItem(SESSION_EMAIL_KEY) || localStorage.getItem(DEMO_EMAIL_KEY))) ||
+        (typeof window !== 'undefined' &&
+          (localStorage.getItem(SESSION_EMAIL_KEY) || localStorage.getItem(DEMO_EMAIL_KEY))) ||
         ''
 
       if (!isSupabaseConfigured) {
@@ -153,6 +157,7 @@ export const useAuthStore = defineStore('auth', () => {
         } else {
           user.value = null
           profile.value = null
+          removeLocal(CACHED_USER_KEY)
         }
         attachActivityListeners()
         return
@@ -160,42 +165,78 @@ export const useAuthStore = defineStore('auth', () => {
 
       const sb = trySupabase()
       if (!sb) {
+        if (savedSessionEmail && admin.isEmailAuthorized(savedSessionEmail)) {
+          setDemoSession(savedSessionEmail)
+          touchSession()
+        }
+        attachActivityListeners()
         return
       }
 
-      const { data } = await sb.auth.getSession()
-      user.value = data.session?.user ?? null
-
-      sb.auth.onAuthStateChange((_event, session) => {
-        user.value = session?.user ?? null
-        if (session?.user) {
+      // Check remote Supabase session
+      try {
+        const { data } = await sb.auth.getSession()
+        if (data.session?.user) {
+          user.value = data.session.user
+          writeLocal(CACHED_USER_KEY, user.value)
           touchSession()
-          void loadProfile()
-        } else if (!savedSessionEmail) {
-          profile.value = null
+          await loadProfile()
         }
-      })
+      } catch (err) {
+        console.warn('Supabase getSession notice:', err)
+      }
+
+      // Single listener for auth state changes
+      if (!authListenerAttached) {
+        authListenerAttached = true
+        sb.auth.onAuthStateChange(async (event, session) => {
+          if (event === 'SIGNED_OUT') {
+            const currentSaved =
+              (typeof window !== 'undefined' &&
+                (localStorage.getItem(SESSION_EMAIL_KEY) || localStorage.getItem(DEMO_EMAIL_KEY))) ||
+              ''
+            if (!currentSaved) {
+              await signOut()
+            }
+          } else if (session?.user) {
+            user.value = session.user
+            writeLocal(CACHED_USER_KEY, user.value)
+            touchSession()
+            void loadProfile()
+          }
+          // Do not wipe user.value if session is null because teacher_access accounts
+          // rely on savedSessionEmail within the 7-day TTL!
+        })
+      }
+
+      // If Supabase session user was not present, check savedSessionEmail within 7 days:
+      if (!user.value && savedSessionEmail) {
+        const authorized = await admin.checkEmailAuthorization(savedSessionEmail)
+        if (authorized) {
+          setDemoSession(savedSessionEmail)
+          touchSession()
+        } else {
+          await signOut()
+        }
+      }
 
       if (user.value) {
         touchSession()
-        await loadProfile()
-      } else {
-        // If Supabase token needs refresh or offline, but educator was authorized and logged in within 7 days:
-        if (savedSessionEmail) {
-          const authorized = await admin.checkEmailAuthorization(savedSessionEmail)
-          if (authorized) {
-            setDemoSession(savedSessionEmail)
-            touchSession()
-          }
-        }
       }
 
       attachActivityListeners()
     } catch (e) {
       console.warn('Auth initialization notice:', e)
-    } finally {
-      loading.value = false
     }
+  }
+
+  async function init(): Promise<void> {
+    if (initPromise) return initPromise
+    initPromise = _doInit().finally(() => {
+      loading.value = false
+      initPromise = null
+    })
+    return initPromise
   }
 
   function setDemoSession(email: string) {
@@ -226,6 +267,7 @@ export const useAuthStore = defineStore('auth', () => {
       updated_at: new Date().toISOString(),
     }
     writeLocal(PROFILE_KEY, profile.value)
+    writeLocal(CACHED_USER_KEY, user.value)
     if (typeof window !== 'undefined' && window.localStorage) {
       localStorage.setItem(DEMO_EMAIL_KEY, norm)
       localStorage.setItem(SESSION_EMAIL_KEY, norm)
@@ -362,6 +404,7 @@ export const useAuthStore = defineStore('auth', () => {
         return
       }
       user.value = data.user
+      writeLocal(CACHED_USER_KEY, user.value)
       if (typeof window !== 'undefined' && window.localStorage) {
         localStorage.setItem(SESSION_EMAIL_KEY, norm)
         localStorage.setItem(DEMO_EMAIL_KEY, norm)
@@ -443,6 +486,7 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = null
     profile.value = null
     removeLocal(PROFILE_KEY)
+    removeLocal(CACHED_USER_KEY)
     if (typeof window !== 'undefined' && window.localStorage) {
       localStorage.removeItem(DEMO_EMAIL_KEY)
       localStorage.removeItem(SESSION_EMAIL_KEY)
@@ -452,6 +496,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   function resetDemoData() {
     removeLocal(PROFILE_KEY)
+    removeLocal(CACHED_USER_KEY)
     if (typeof window !== 'undefined' && window.localStorage) {
       localStorage.removeItem(DEMO_EMAIL_KEY)
       localStorage.removeItem(SESSION_EMAIL_KEY)
