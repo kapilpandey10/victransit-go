@@ -12,6 +12,7 @@ import {
 import { useAuthStore } from '@/stores/auth'
 import { useChatStore } from '@/stores/chat'
 import { useUiStore } from '@/stores/ui'
+import SupabaseConnectionCard from '@/components/SupabaseConnectionCard.vue'
 
 const auth = useAuthStore()
 const ui = useUiStore()
@@ -52,7 +53,6 @@ async function togglePuter(enabled: boolean) {
 }
 
 const configured = computed(() => isSupabaseConfigured)
-const endpoint = computed(() => aiStatus.endpoint)
 const localKeyCount = computed(() => listLocalKeys().length)
 
 const profileForm = reactive({
@@ -125,102 +125,86 @@ function clearLocalData() {
       </RouterLink>
     </div>
 
+    <!-- Supabase Cloud Connection Manager -->
+    <SupabaseConnectionCard />
+
     <div class="grid gap-5 lg:grid-cols-2">
       <section class="card space-y-4">
         <h2 class="font-display text-base font-extrabold">👩‍🏫 Your profile</h2>
-      <div class="grid gap-4 sm:grid-cols-2">
-        <div>
-          <label class="field-label" for="pf-name">Full name</label>
-          <input id="pf-name" v-model="profileForm.full_name" class="input" />
-        </div>
-        <div>
-          <label class="field-label" for="pf-centre">Centre</label>
-          <input id="pf-centre" v-model="profileForm.centre_name" class="input" />
-        </div>
-        <div>
-          <label class="field-label" for="pf-room">Room</label>
-          <input id="pf-room" v-model="profileForm.room" class="input" />
-        </div>
-        <div>
-          <label class="field-label" for="pf-role">Role</label>
-          <input id="pf-role" v-model="profileForm.role" class="input" placeholder="Educator, ECT, Director…" />
-        </div>
-      </div>
-      <button class="btn-primary" :disabled="saving" @click="saveProfile">
-        {{ saving ? 'Saving…' : 'Save profile' }}
-      </button>
-    </section>
-
-    <section class="card space-y-3">
-      <h2 class="font-display text-base font-extrabold">🔌 Backend connection</h2>
-      <p class="text-xs text-slate-500 dark:text-slate-400">
-        Status:
-        <span
-          :class="
-            aiStatus.mode === 'edge-function'
-              ? 'font-bold text-emerald-600'
-              : aiStatus.mode === 'direct'
-                ? 'font-bold text-sky-600'
-                : 'font-bold text-amber-600'
-          "
-        >
-          {{
-            aiStatus.mode === 'edge-function'
-              ? 'Supabase Edge Function — Groq key stays server-side, data syncs.'
-              : aiStatus.mode === 'direct'
-                ? 'Direct Groq mode — AI chat + Whisper voice work now (key in git-ignored .env.local).'
-                : 'Demo mode — no AI backend yet. Add a Groq key or Supabase credentials.'
-          }}
-        </span>
-      </p>
-
-      <div v-if="configured" class="space-y-3">
-        <p class="break-all font-mono text-[11px] text-slate-400">{{ endpoint }}</p>
-        <div class="grid gap-3">
+        <div class="grid gap-4 sm:grid-cols-2">
           <div>
-            <label class="field-label" for="auth-email">Email</label>
-            <input id="auth-email" v-model="email" type="email" class="input" />
+            <label class="field-label" for="pf-name">Full name</label>
+            <input id="pf-name" v-model="profileForm.full_name" class="input" />
           </div>
           <div>
-            <label class="field-label" for="auth-password">Password</label>
-            <input id="auth-password" v-model="password" type="password" class="input" />
+            <label class="field-label" for="pf-centre">Centre</label>
+            <input id="pf-centre" v-model="profileForm.centre_name" class="input" />
           </div>
           <div>
-            <label class="field-label" for="auth-name">Name (for sign-up)</label>
-            <input id="auth-name" v-model="fullName" class="input" />
+            <label class="field-label" for="pf-room">Room</label>
+            <input id="pf-room" v-model="profileForm.room" class="input" />
           </div>
-          <p v-if="authError" class="text-xs text-rose-600">{{ authError }}</p>
-          <div class="flex gap-2">
-            <button class="btn-primary flex-1" :disabled="authBusy" @click="authAction('in')">Sign in</button>
-            <button class="btn-secondary flex-1" :disabled="authBusy" @click="authAction('up')">Sign up</button>
-            <button v-if="auth.isAuthenticated" class="btn-ghost" @click="auth.signOut()">Out</button>
+          <div>
+            <label class="field-label" for="pf-role">Role</label>
+            <input id="pf-role" v-model="profileForm.role" class="input" placeholder="Educator, ECT, Director…" />
           </div>
         </div>
-      </div>
+        <button class="btn-primary" :disabled="saving" @click="saveProfile">
+          {{ saving ? 'Saving…' : 'Save profile' }}
+        </button>
+      </section>
 
-      <div v-else-if="aiStatus.direct" class="space-y-3">
-        <p class="break-all font-mono text-[11px] text-slate-400">{{ endpoint }}</p>
-        <p class="text-xs text-slate-600 dark:text-slate-300">
-          AI chat and Whisper voice transcription are <span class="font-bold">live right now</span>
-          through the direct Groq path — no Supabase required. Data is still saved
-          on this device only.
-        </p>
+      <section class="card space-y-3">
+        <h2 class="font-display text-base font-extrabold">🔐 Cloud Account Authentication</h2>
         <p class="text-xs text-slate-500 dark:text-slate-400">
-          To enable cross-device sync and move the key fully server-side, follow
-          the README: create a Supabase project, run
-          <span class="font-mono">supabase/migrations/0001_init.sql</span>, deploy the
-          <span class="font-mono">chat</span> function, then add the URL + anon key to
-          <span class="font-mono">.env.local</span>.
+          Status:
+          <span
+            :class="
+              configured
+                ? 'font-bold text-emerald-600'
+                : aiStatus.mode === 'direct'
+                  ? 'font-bold text-sky-600'
+                  : 'font-bold text-amber-600'
+            "
+          >
+            {{
+              configured
+                ? 'Supabase Cloud Connected — Multi-user authentication & PostgreSQL database active.'
+                : 'Local Demo Mode — Connect your Supabase anon key above to activate cloud accounts.'
+            }}
+          </span>
         </p>
-      </div>
 
-      <ol v-else class="list-decimal space-y-1.5 pl-5 text-xs text-slate-600 dark:text-slate-300">
-        <li>Create a free project at <span class="font-bold">supabase.com</span>.</li>
-        <li>Run the SQL in <span class="font-mono">supabase/migrations/0001_init.sql</span>.</li>
-        <li>Deploy the chat function and set the GROQ_API_KEY secret.</li>
-        <li>Copy .env.example to .env.local with your URL and anon key, then rebuild.</li>
-      </ol>
-    </section>
+        <div v-if="configured" class="space-y-3">
+          <div class="grid gap-3">
+            <div>
+              <label class="field-label" for="auth-email">Educator Email</label>
+              <input id="auth-email" v-model="email" type="email" class="input" placeholder="name@hadfield.edu.au" />
+            </div>
+            <div>
+              <label class="field-label" for="auth-password">Password</label>
+              <input id="auth-password" v-model="password" type="password" class="input" placeholder="••••••••" />
+            </div>
+            <div>
+              <label class="field-label" for="auth-name">Name (for sign-up)</label>
+              <input id="auth-name" v-model="fullName" class="input" placeholder="Full name" />
+            </div>
+            <p v-if="authError" class="text-xs text-rose-600">{{ authError }}</p>
+            <div class="flex gap-2">
+              <button class="btn-primary flex-1" :disabled="authBusy" @click="authAction('in')">Sign in</button>
+              <button class="btn-secondary flex-1" :disabled="authBusy" @click="authAction('up')">Sign up</button>
+              <button v-if="auth.isAuthenticated" class="btn-ghost" @click="auth.signOut()">Sign Out</button>
+            </div>
+          </div>
+        </div>
+
+        <div v-else class="space-y-2 text-xs text-slate-600 dark:text-slate-300">
+          <p>
+            When Supabase is not connected, the app uses on-device local storage.
+            To allow educators to log in with their own passwords and synchronize inquiry documentation across iPads and computers, connect your Supabase project in the card above.
+          </p>
+        </div>
+      </section>
 
     <section class="card space-y-4">
       <h2 class="font-display text-base font-extrabold">🎙️ Voice & AI usage</h2>

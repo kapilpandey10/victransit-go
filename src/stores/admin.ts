@@ -10,8 +10,8 @@ import type {
   TopicStatus,
 } from '@/types'
 
-const teacherRepo = createRepo<TeacherAccess>(TABLES.teacherAccess)
-const topicRepo = createRepo<TopicModuleStatus>(TABLES.topicStatuses)
+const teacherRepo = createRepo<TeacherAccess>(TABLES.teacherAccess, { isGlobal: true })
+const topicRepo = createRepo<TopicModuleStatus>(TABLES.topicStatuses, { isGlobal: true })
 
 export const DEFAULT_TOPICS: Array<{
   topic_key: string

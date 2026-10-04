@@ -5,6 +5,8 @@ import { useAdminStore } from '@/stores/admin'
 import { useAuthStore } from '@/stores/auth'
 import { useRoomsStore } from '@/stores/rooms'
 import { useUiStore } from '@/stores/ui'
+import SupabaseConnectionCard from '@/components/SupabaseConnectionCard.vue'
+import { isSupabaseConfiguredRef } from '@/services/supabase'
 import type { RoomRecord, TeacherAccess, TeacherAccessStatus, TeacherRole, TopicModuleStatus, TopicStatus } from '@/types'
 
 const admin = useAdminStore()
@@ -12,7 +14,7 @@ const auth = useAuthStore()
 const roomsStore = useRoomsStore()
 const ui = useUiStore()
 
-const activeTab = ref<'teachers' | 'rooms' | 'topics' | 'governance'>('teachers')
+const activeTab = ref<'teachers' | 'rooms' | 'topics' | 'governance' | 'cloud'>('teachers')
 
 onMounted(async () => {
   await Promise.all([admin.init(), roomsStore.loadRooms()])
@@ -280,13 +282,26 @@ async function handleSaveTopicNotes(topic: TopicModuleStatus) {
 
       <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 relative z-10">
         <div>
-          <div class="flex items-center gap-2">
+          <div class="flex flex-wrap items-center gap-2">
             <span class="rounded-full bg-brand-500/20 text-brand-300 px-3 py-1 text-xs font-bold uppercase tracking-wider border border-brand-500/30">
               Service Leadership & Administration
             </span>
             <span class="rounded-full bg-emerald-500/20 text-emerald-300 px-2.5 py-0.5 text-xs font-semibold">
               ACECQA QA7 Governance
             </span>
+            <button
+              type="button"
+              class="rounded-full px-2.5 py-0.5 text-xs font-semibold border transition flex items-center gap-1.5 cursor-pointer"
+              :class="
+                isSupabaseConfiguredRef
+                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/30'
+                  : 'bg-amber-500/20 text-amber-300 border-amber-500/30 hover:bg-amber-500/30'
+              "
+              @click="activeTab = 'cloud'"
+            >
+              <span class="h-1.5 w-1.5 rounded-full" :class="isSupabaseConfiguredRef ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'" />
+              <span>{{ isSupabaseConfiguredRef ? 'Supabase Connected 🟢' : 'Supabase Not Connected ⚪' }}</span>
+            </button>
           </div>
           <h1 class="mt-2 font-display text-2xl sm:text-3xl font-black tracking-tight">
             Hadfield ELC — Admin Dashboard
@@ -392,6 +407,26 @@ async function handleSaveTopicNotes(topic: TopicModuleStatus) {
           class="rounded-full bg-amber-500 text-slate-950 px-2 py-0.5 text-[10px] font-extrabold"
         >
           {{ admin.underDevTopics.length }} WIP
+        </span>
+      </button>
+
+      <button
+        type="button"
+        class="flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm transition"
+        :class="
+          activeTab === 'cloud'
+            ? 'bg-brand-600 text-white shadow-sm'
+            : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+        "
+        @click="activeTab = 'cloud'"
+      >
+        <span>☁️</span>
+        <span>Supabase Cloud & Sync</span>
+        <span
+          class="rounded-full px-2 py-0.5 text-[10px] font-extrabold"
+          :class="isSupabaseConfiguredRef ? 'bg-emerald-500/20 text-emerald-400 dark:text-emerald-300' : 'bg-amber-500/20 text-amber-500 dark:text-amber-300'"
+        >
+          {{ isSupabaseConfiguredRef ? 'Connected' : 'Offline' }}
         </span>
       </button>
 
@@ -980,6 +1015,13 @@ async function handleSaveTopicNotes(topic: TopicModuleStatus) {
           </div>
         </div>
       </div>
+    </section>
+
+    <!-- ===================================================================== -->
+    <!-- TAB 5: SUPABASE CLOUD & SYNC -->
+    <!-- ===================================================================== -->
+    <section v-if="activeTab === 'cloud'" class="space-y-4">
+      <SupabaseConnectionCard />
     </section>
 
     <!-- ===================================================================== -->

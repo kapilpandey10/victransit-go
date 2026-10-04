@@ -56,8 +56,20 @@ describe('local repository (demo mode)', () => {
     expect(p2.map(r => r.name)).toEqual(['Keep'])
   })
 
-  it('scopes rows to the owning user', async () => {
+  it('scopes rows to the owning user for normal repos', async () => {
     const created = await repo.create('user-a', { name: 'Secret' })
     expect(await repo.get('user-b', created.id)).toBeNull()
+  })
+
+  it('allows all users to read and list from global repos', async () => {
+    const globalRepo = createRepo<Widget>('spec_global_widgets', { isGlobal: true })
+    const created = await globalRepo.create('user-director', { name: 'Dandelions Room' })
+
+    // Other user can see it
+    const all = await globalRepo.list('user-educator')
+    expect(all.some(r => r.name === 'Dandelions Room')).toBe(true)
+
+    const single = await globalRepo.get('user-educator', created.id)
+    expect(single?.name).toBe('Dandelions Room')
   })
 })

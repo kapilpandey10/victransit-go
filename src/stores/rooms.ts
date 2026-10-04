@@ -4,7 +4,7 @@ import { createRepo, TABLES } from '@/services/repo'
 import { useAuthStore } from './auth'
 import type { RoomRecord } from '@/types'
 
-const roomsRepo = createRepo<RoomRecord>(TABLES.rooms)
+const roomsRepo = createRepo<RoomRecord>(TABLES.rooms, { isGlobal: true })
 
 export const DEFAULT_ROOM_NAMES = [
   'Blossoms',

@@ -299,7 +299,7 @@ create trigger weekly_wrap_ups_updated_at
 -- -------------------------------------------------------------------------
 create table if not exists public.teacher_access (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references auth.users (id) on delete cascade,
+  user_id uuid references auth.users (id) on delete set null,
   email text not null,
   name text not null,
   role text not null default 'Educator',
@@ -316,8 +316,14 @@ create table if not exists public.teacher_access (
 create index if not exists teacher_access_email_idx on public.teacher_access (email);
 alter table public.teacher_access enable row level security;
 drop policy if exists "own rows" on public.teacher_access;
-create policy "own rows" on public.teacher_access
-  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+drop policy if exists "teacher_access_read" on public.teacher_access;
+drop policy if exists "teacher_access_write" on public.teacher_access;
+
+create policy "teacher_access_read" on public.teacher_access
+  for select using (true);
+
+create policy "teacher_access_write" on public.teacher_access
+  for all using (true) with check (true);
 
 drop trigger if exists teacher_access_updated_at on public.teacher_access;
 create trigger teacher_access_updated_at
@@ -329,7 +335,7 @@ create trigger teacher_access_updated_at
 -- -------------------------------------------------------------------------
 create table if not exists public.topic_statuses (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references auth.users (id) on delete cascade,
+  user_id uuid references auth.users (id) on delete set null,
   topic_key text not null,
   title text not null,
   icon text not null default '📌',
@@ -345,8 +351,14 @@ create table if not exists public.topic_statuses (
 create index if not exists topic_statuses_key_idx on public.topic_statuses (topic_key);
 alter table public.topic_statuses enable row level security;
 drop policy if exists "own rows" on public.topic_statuses;
-create policy "own rows" on public.topic_statuses
-  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+drop policy if exists "topic_statuses_read" on public.topic_statuses;
+drop policy if exists "topic_statuses_write" on public.topic_statuses;
+
+create policy "topic_statuses_read" on public.topic_statuses
+  for select using (true);
+
+create policy "topic_statuses_write" on public.topic_statuses
+  for all using (true) with check (true);
 
 drop trigger if exists topic_statuses_updated_at on public.topic_statuses;
 create trigger topic_statuses_updated_at
@@ -358,7 +370,7 @@ create trigger topic_statuses_updated_at
 -- -------------------------------------------------------------------------
 create table if not exists public.rooms (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references auth.users (id) on delete cascade,
+  user_id uuid references auth.users (id) on delete set null,
   name text not null,
   description text default '',
   sort_order int not null default 0,
@@ -370,13 +382,43 @@ create table if not exists public.rooms (
 create index if not exists rooms_name_idx on public.rooms (name);
 alter table public.rooms enable row level security;
 drop policy if exists "own rows" on public.rooms;
-create policy "own rows" on public.rooms
-  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+drop policy if exists "rooms_read" on public.rooms;
+drop policy if exists "rooms_write" on public.rooms;
+
+create policy "rooms_read" on public.rooms
+  for select using (true);
+
+create policy "rooms_write" on public.rooms
+  for all using (true) with check (true);
 
 drop trigger if exists rooms_updated_at on public.rooms;
 create trigger rooms_updated_at
   before update on public.rooms
   for each row execute function public.set_updated_at();
+
+-- -------------------------------------------------------------------------
+-- Initial Seed Data: Service Director, Educators, and Learning Rooms
+-- -------------------------------------------------------------------------
+insert into public.teacher_access (email, name, role, room, status, is_admin, notes)
+values
+  ('kapilpandey@hadfield.edu.au', 'Kapil Pandey', 'Centre Director', 'All Rooms', 'active', true, 'Service Director and System Administrator.'),
+  ('jean@hadfield.edu.au', 'Jean', 'Educational Leader', 'All Rooms', 'active', false, 'Curriculum oversight, pedagogical reflection, and educator coaching.'),
+  ('lakshmi@hadfield.edu.au', 'Lakshmi', 'Early Childhood Teacher', 'Dandelions', 'active', false, 'Funded Kindergarten program lead and STEM investigations.'),
+  ('kelly.goodsir@hadfield.edu.au', 'Kelly Goodsir', 'Room Leader', 'Butter Beans', 'active', false, 'Toddler room inquiry and play schema documentation.'),
+  ('nikki@hadfield.edu.au', 'Nikki', 'Early Childhood Teacher', 'Rosellas', 'invited', false, 'Pre-kindergarten early literacy and transitions.'),
+  ('sarah.j@hadfield.edu.au', 'Sarah Jenkins', 'Educator', 'Blossoms', 'active', false, 'Nursery infant sensory play and primary caregiving.')
+on conflict do nothing;
+
+insert into public.rooms (name, description, sort_order, is_active)
+values
+  ('Blossoms', 'Nursery & infant exploration room', 0, true),
+  ('Sweet Peas', 'Young toddlers inquiry room', 1, true),
+  ('Chamomiles', 'Toddlers sensory & loose parts room', 2, true),
+  ('Dandelions', 'Kindergarten inquiry & culinary exploration room', 3, true),
+  ('Butter Beans', 'Pre-kindy schema play & language room', 4, true),
+  ('Rosellas', 'Early literacy & creative arts room', 5, true),
+  ('Wattles', 'Nature-inspired STEM room', 6, true)
+on conflict do nothing;
 
 
 
