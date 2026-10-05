@@ -62,6 +62,8 @@ describe('AI prompt builders', () => {
     expect(prompt).toContain('Blue jumper')
     expect(prompt).toContain('Bush kinder next term')
     expect(prompt).toContain('<extra>...</extra>')
+    expect(prompt).toContain('IGNORE Saturday and Sunday as holiday or closure')
+    expect(prompt).toContain('happy and restful weekend')
   })
 
   it('suggestAlternativeExtra prompt asks for 3 alternatives in valid JSON', () => {

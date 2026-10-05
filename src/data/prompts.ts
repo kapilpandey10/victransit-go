@@ -17,6 +17,11 @@ GROUNDING & INTEGRITY:
 - NEVER invent experiences, food, inquiries, projects, family taste-tests, invitations, or events that are NOT explicitly mentioned in the educator's notes.
 - If the educator wrote about 3 activities, only cover those 3 activities. Do NOT pad with fake future projects or made-up family events.
 
+OPERATING DAYS & WEEKEND:
+- Childcare operating days are Monday to Friday. Saturday and Sunday are the standard weekend.
+- IGNORE Saturday and Sunday as holiday or closure. DO NOT state or write that Saturday and Sunday are closed or a holiday.
+- ALWAYS conclude the wrap-up before the sign-off with a warm, heartfelt sentence wishing families a relaxing, happy and restful weekend!
+
 AI ELABORATIONS TAGGING:
 - Whenever you add pedagogical reflections, developmental links (e.g. fine-motor skills, coordination, spatial reasoning, cause-and-effect, social confidence), or explanatory phrasing beyond what the educator wrote, you MUST wrap that specific sentence or phrase inside <extra>...</extra> tags.
 - Educators will see these in a special highlight color so they can review, edit, get suggestions, or delete them before sharing.
@@ -31,7 +36,7 @@ STRUCTURE:
 4. Flowing narrative paragraphs covering the actual experiences from the notes. Describe what the children did warmly, followed by the developmental learning in <extra>...</extra> tags.
 5. Heartfelt thank-you to families: "We would like to say a heartfelt thank you to all our <Room> families for your continued support, involvement and collaboration."
 6. Reminders (clean plain text):
-   Expand the educator's notes into warm, informative, helpful reminders for families (e.g. explaining UV protection, spare clothes for water play, closure dates clearly). Correct typos naturally.
+   Expand the educator's notes into warm, informative, helpful reminders for families (e.g. explaining UV protection, spare clothes for water play, explicit public holidays noted in reminders). Correct typos naturally.
    Format with clean bullet points:
    Reminders:
    • <Topic>: <Helpful, parent-friendly explanation>
@@ -40,8 +45,8 @@ STRUCTURE:
    Lost & Found:
    • <Warm, clear notice>
 8. Any special message or announcement (if provided).
-9. Warm weekend sign-off:
-   "Thank you again for a wonderful week. We hope you all have a relaxing weekend!
+9. Warm weekend wish and sign-off:
+   "Thank you again for a wonderful week of learning and discovery. We wish all our <Room> families a relaxing and happy weekend!
 
 The <Room> Team"
 
@@ -70,7 +75,7 @@ Reminders:
 • Sun Protection & Outdoor Play: As the weather is warming up, please ensure children arrive with sunscreen applied and bring a labelled sun-safe hat each day.
 • Bush Kinder: Bush Kinder will be held every Friday.
 
-Thank you again for a lovely week. We hope you have a relaxing weekend!
+Thank you again for a lovely week. We wish all our Chamomiles families a relaxing and happy weekend!
 
 The Chamomiles Team`
 
@@ -339,8 +344,7 @@ Rules:
         weeklyWrapUp: (input: {
           room: string
           weekLabel: string
-          /** e.g. "Saturday 10 October & Sunday 11 October — centre closed" */
-          closed: string
+          closed?: string
           days: { label: string; date: string; notes: string }[]
           reminders?: string
           lostFound?: string
@@ -357,8 +361,7 @@ ${WRAPUP_EXCERPTS}
 
 ROOM: ${input.room}
 WEEK: ${input.weekLabel}
-CENTRE CLOSED: ${input.closed}
-
+${input.closed ? `PUBLIC HOLIDAY / CLOSURE NOTICE: ${input.closed}\n` : ''}
 DAILY NOTES FROM EDUCATORS:
 ${notes || '(no notes were provided this week — write a gentle note acknowledging a quiet week and remind families of the notices below.)'}
 
@@ -377,6 +380,8 @@ REMINDERS ON STRICT REQUIREMENTS:
 3. Wrap any added pedagogical/developmental reflections (e.g. motor skills, problem-solving, social connections) inside <extra>...</extra> tags.
 4. Expand reminders and lost & found into informative, parent-friendly notices rather than dry fragments. Correct any typos naturally.
 5. Use "Wominjeka!" for the Indigenous greeting.
+6. IGNORE Saturday and Sunday as holiday or closure. Standard early learning operating days are Monday to Friday. Never state or write that Saturday or Sunday are closed or a holiday.
+7. ALWAYS wish families a relaxing, happy and wonderful weekend right before the final team signature.
 
 Write the complete Weekly Wrap-Up now, ready to copy straight to families.`
         },

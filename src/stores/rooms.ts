@@ -36,11 +36,28 @@ export const useRoomsStore = defineStore('rooms', () => {
 
   const scope = () => auth.scopeId
 
-  const activeRooms = computed(() =>
-    rooms.value
+  const activeRooms = computed(() => {
+    const list = rooms.value
       .filter(r => r.is_active !== false)
-      .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)),
-  )
+      .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+
+    const map = new Map<string, RoomRecord>()
+    for (const r of list) {
+      const c = (r.centre_name || 'Hadfield Early Learning Centre').toLowerCase().trim()
+      const n = (r.name || '').toLowerCase().trim()
+      const key = `${c}::${n}`
+      if (!map.has(key)) {
+        map.set(key, r)
+      } else {
+        const existing = map.get(key)!
+        // If existing is default-room-* but r is a real record, prefer r
+        if (existing.id.startsWith('default-room-') && !r.id.startsWith('default-room-')) {
+          map.set(key, r)
+        }
+      }
+    }
+    return Array.from(map.values())
+  })
 
   const roomNames = computed(() => {
     const activeCentre =
@@ -50,7 +67,15 @@ export const useRoomsStore = defineStore('rooms', () => {
     const centreRooms = activeRooms.value.filter(
       r => !r.centre_name || r.centre_name.toLowerCase().trim() === activeCentre,
     )
-    const names = centreRooms.map(r => r.name)
+    const seen = new Set<string>()
+    const names: string[] = []
+    for (const r of centreRooms) {
+      const trimmed = r.name?.trim()
+      if (trimmed && !seen.has(trimmed.toLowerCase())) {
+        seen.add(trimmed.toLowerCase())
+        names.push(trimmed)
+      }
+    }
     return names.length > 0 ? names : Array.from(DEFAULT_ROOM_NAMES)
   })
 
@@ -62,8 +87,15 @@ export const useRoomsStore = defineStore('rooms', () => {
   }
 
   function getRoomNamesForCentre(centreName: string): string[] {
-    const list = getRoomsForCentre(centreName).map(r => r.name)
-    if (list.length > 0) return list
+    const list = getRoomsForCentre(centreName).map(r => r.name?.trim()).filter(Boolean)
+    const seen = new Set<string>()
+    const unique = list.filter(n => {
+      const lower = n.toLowerCase()
+      if (seen.has(lower)) return false
+      seen.add(lower)
+      return true
+    })
+    if (unique.length > 0) return unique
     if (centreName.toLowerCase().includes('hadfield')) return Array.from(DEFAULT_ROOM_NAMES)
     return []
   }
@@ -92,7 +124,22 @@ export const useRoomsStore = defineStore('rooms', () => {
           // If RLS prevents anonymous seeding, retain built-in defaults
         }
       } else {
-        rooms.value = list
+        // Deduplicate rows by centre + room name
+        const map = new Map<string, RoomRecord>()
+        for (const r of list) {
+          const c = (r.centre_name || 'Hadfield Early Learning Centre').toLowerCase().trim()
+          const n = (r.name || '').toLowerCase().trim()
+          const key = `${c}::${n}`
+          if (!map.has(key)) {
+            map.set(key, r)
+          } else {
+            const existing = map.get(key)!
+            if (existing.id.startsWith('default-room-') && !r.id.startsWith('default-room-')) {
+              map.set(key, r)
+            }
+          }
+        }
+        rooms.value = Array.from(map.values())
       }
       initialised.value = true
     } catch {

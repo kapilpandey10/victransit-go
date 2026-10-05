@@ -136,6 +136,16 @@ export function createRepo<T extends BaseRecord>(table: string, opts: RepoOption
             const map = new Map<string, T>()
             for (const r of result) map.set(r.id, r)
             for (const r of localRows) {
+              if (table === 'rooms') {
+                const rName = String(col(r, 'name') || '').toLowerCase().trim()
+                const rCentre = String(col(r, 'centre_name') || '').toLowerCase().trim()
+                const exists = result.some(
+                  rem =>
+                    String(col(rem, 'name') || '').toLowerCase().trim() === rName &&
+                    String(col(rem, 'centre_name') || '').toLowerCase().trim() === rCentre,
+                )
+                if (exists) continue
+              }
               if (!map.has(r.id)) map.set(r.id, r)
             }
             return Array.from(map.values())

@@ -31,7 +31,18 @@ const roomsStore = useRoomsStore()
 const ui = useUiStore()
 const ai = useAiTask()
 
-const roomList = computed(() => roomsStore.roomNames)
+const roomList = computed(() => {
+  const seen = new Set<string>()
+  const list: string[] = []
+  for (const name of roomsStore.roomNames) {
+    const trimmed = name?.trim()
+    if (trimmed && !seen.has(trimmed.toLowerCase())) {
+      seen.add(trimmed.toLowerCase())
+      list.push(trimmed)
+    }
+  }
+  return list
+})
 
 // --- context: room + week (defaults: Blossoms, this week) -------------------
 const lastRoom = localStorage.getItem('hadfield:v1:last-wrapup-room')
@@ -353,7 +364,6 @@ async function generate() {
   const prompt = PROMPTS.weeklyWrapUp({
     room: room.value,
     weekLabel: week.value.label,
-    closed: `${week.value.closed[0].label} ${week.value.closed[0].iso} & ${week.value.closed[1].label} ${week.value.closed[1].iso} (centre closed)`,
     days: week.value.days.map(d => ({
       label: d.label,
       date: d.date.toLocaleDateString('en-AU', { day: 'numeric', month: 'long' }),
@@ -467,7 +477,7 @@ async function deleteDraft(id: string) {
         </div>
       </div>
 
-      <!-- Working week + closed weekend -->
+      <!-- Working week (Mon–Fri) -->
       <div class="flex flex-wrap items-center gap-1.5">
         <span
           v-for="d in week.days"
@@ -475,14 +485,6 @@ async function deleteDraft(id: string) {
           class="chip bg-brand-100 text-brand-800 dark:bg-brand-950 dark:text-brand-200"
         >
           {{ d.short }} {{ d.date.getDate() }} {{ d.date.toLocaleDateString('en-AU', { month: 'short' }) }}
-        </span>
-        <span
-          v-for="c in week.closed"
-          :key="c.iso"
-          class="chip bg-slate-200 text-slate-500 line-through dark:bg-slate-800 dark:text-slate-400"
-          title="Centre closed"
-        >
-          {{ c.label }} {{ c.iso.slice(8) }} · Closed
         </span>
         <div class="ml-auto flex items-center gap-2">
           <span
@@ -529,12 +531,6 @@ async function deleteDraft(id: string) {
           {{ d.short }} {{ d.date.getDate() }}
           <span v-if="notes[d.key].trim()" class="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 align-middle" />
         </button>
-        <span
-          class="flex-1 cursor-not-allowed rounded-lg px-2 py-2 text-center text-xs font-bold text-slate-400"
-          title="Centre closed"
-        >
-          Sat–Sun
-        </span>
       </nav>
 
       <div>
